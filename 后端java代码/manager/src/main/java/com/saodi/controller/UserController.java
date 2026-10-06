@@ -61,7 +61,7 @@ public class UserController {
 
 
         if (!qiniu.isConfigured()) {
-            return ResponseObj.ERROR(511, "未配置七牛云密钥（QINIU_ACCESS_KEY / QINIU_SECRET_KEY），头像上传暂不可用");
+            return ResponseObj.ERROR(511, "未配置七牛云上传参数，缺少 " + qiniu.missingVars() + "，头像上传暂不可用");
         }
         Configuration cfg = new Configuration(Region.huabei());
         cfg.resumableUploadAPIVersion = Configuration.ResumableUploadAPIVersion.V2;// 指定分片上传版本

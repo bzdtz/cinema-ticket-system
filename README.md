@@ -127,10 +127,10 @@ cd ..\面向管理员前端页面   & npm install & npm run serve    REM :8081
 | 变量 | 作用 | 不配会怎样 |
 |---|---|---|
 | `SENSENOVA_API_KEY` 及 `ai.*` | 智能体的大模型 | AI 浮窗走规则兜底，仍可用 |
-| `QINIU_ACCESS_KEY` / `QINIU_SECRET_KEY` | 图片上传 | 上传接口返回 `511 未配置七牛云密钥` |
+| `QINIU_ACCESS_KEY` / `QINIU_SECRET_KEY` / `QINIU_BUCKET` | 图片上传（仓库里没有桶名和域名的默认值，得自己配） | 上传接口返回 `511`，并列出缺哪几个变量 |
 | `MYSQL_PASSWORD` | 数据库口令 | 用本地开发默认值 |
 | `REDIS_PASSWORD` | Redis 口令 | 不发送 AUTH（本机 Redis 未设 requirepass） |
-| `VUE_APP_API_BASE` | 前端 API 基址 | 用 `.env` 里的本地默认值 |
+| `VUE_APP_API_BASE` | 前端 API 基址 | 用 `.env.development` / `.env.production` 里的本地默认值 |
 
 ---
 

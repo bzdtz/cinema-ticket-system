@@ -30,12 +30,14 @@ logging:
   level:
     com.saodi: trace
 
-# 对象存储（图片上传）。密钥不再写在 java 源码里，走环境变量注入：
+# 对象存储（图片上传）。密钥不写在源码里，四项全部走环境变量注入：
 #   set QINIU_ACCESS_KEY=xxx
 #   set QINIU_SECRET_KEY=yyy
-# 没配的时候上传接口返回 511 明确提示，不会拿旧 key 去请求。
+#   set QINIU_BUCKET=你的桶名
+#   set QINIU_DOMAIN=桶的访问域名
+# 仓库里不留任何默认值（连桶名都不留），没配时上传接口返回 511 并说清缺哪几项。
 qiniu:
   access-key: ${QINIU_ACCESS_KEY:}
   secret-key: ${QINIU_SECRET_KEY:}
-  bucket: ${QINIU_BUCKET:saodi-movie}
-  domain: ${QINIU_DOMAIN:http://s6gtr7r2k.hb-bkt.clouddn.com}
+  bucket: ${QINIU_BUCKET:}
+  domain: ${QINIU_DOMAIN:}
