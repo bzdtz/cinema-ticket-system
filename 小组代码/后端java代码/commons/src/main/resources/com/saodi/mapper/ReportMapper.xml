@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.saodi.mapper.ReportMapper">
+
+    <!--
+      订单发生时间：已支付看 pay_time，未支付看 last_confirm_time。
+      两个都为空的订单不会被时间区间筛掉就没人知道了，所以单独数一个 undatedOrders。
+    -->
+    <sql id="orderTime">IFNULL(o.pay_time, o.last_confirm_time)</sql>
+
+    <sql id="rangeOnOrder">
+        <if test="start!=null and start!=''">
+            AND <include refid="orderTime"/> &gt;= #{start}
+        </if>
+        <if test="end!=null and end!=''">
+            AND <include refid="orderTime"/> &lt; DATE_ADD(#{end}, INTERVAL 1 DAY)
+        </if>
+    </sql>
+
+    <select id="overview" resultType="java.util.LinkedHashMap">
+        SELECT
+            COUNT(*)                                                                       AS totalOrders,
+            IFNULL(SUM(o.status = '已支付'), 0)                                            AS paidOrders,
+            IFNULL(SUM(IF(o.status = '已支付', o.total_price, 0)), 0)                      AS paidAmount,
+            IFNULL(SUM(o.status = '未支付'), 0)                                            AS unpaidOrders,
+            IFNULL(SUM(IF(o.status = '未支付', o.total_price, 0)), 0)                      AS unpaidAmount,
+            IFNULL(SUM(o.status IS NULL OR o.status NOT IN ('已支付', '未支付')), 0)        AS otherStatusOrders,
+            IFNULL(SUM(<include refid="orderTime"/> IS NULL), 0)                          AS undatedOrders,
+            IFNULL(SUM(o.pay_time IS NULL AND o.last_confirm_time IS NULL
+                        AND o.status = '已支付'), 0)                                       AS paidUndatedOrders,
+            IFNULL(SUM(NOT EXISTS(SELECT 1 FROM showtimes st WHERE st.id = o.showtimes_id)), 0)
+                                                                                          AS lostShowtimeOrders,
+            IFNULL(SUM(IF(o.status = '已支付'
+                        AND NOT EXISTS(SELECT 1 FROM showtimes st WHERE st.id = o.showtimes_id),
+                        o.total_price, 0)), 0)                                            AS lostShowtimeAmount,
+            IFNULL(SUM(NOT EXISTS(SELECT 1 FROM `user` u WHERE u.id = o.user_id)), 0)      AS lostUserOrders,
+            MIN(DATE(<include refid="orderTime"/>))                                       AS minDate,
+            MAX(DATE(<include refid="orderTime"/>))                                       AS maxDate
+        FROM `order` o
+        <where>
+            <include refid="rangeOnOrder"/>
+        </where>
+    </select>
+
+    <select id="trend" resultType="java.util.LinkedHashMap">
+        SELECT
+            DATE_FORMAT(<include refid="orderTime"/>, '%Y-%m-%d')             AS day,
+            IFNULL(SUM(o.status = '已支付'), 0)                               AS paidOrders,
+            IFNULL(SUM(IF(o.status = '已支付', o.total_price, 0)), 0)         AS paidAmount,
+            IFNULL(SUM(o.status = '未支付'), 0)                               AS unpaidOrders
+        FROM `order` o
+        WHERE <include refid="orderTime"/> IS NOT NULL
+        <include refid="rangeOnOrder"/>
+        GROUP BY DATE_FORMAT(<include refid="orderTime"/>, '%Y-%m-%d')
+        ORDER BY day
+    </select>
+
+    <!-- 场次被删掉的订单在旧 INNER JOIN 口径里彻底消失，这里归到「无法归类」一行，钱不会凭空不见 -->
+    <select id="topMovies" resultType="java.util.LinkedHashMap">
+        SELECT
+            IFNULL(m.name, '（无法归类：场次已删除）') AS name,
+            COUNT(o.id)                              AS orders,
+            IFNULL(SUM(o.total_price), 0)            AS amount
+        FROM `order` o
+        LEFT JOIN showtimes s ON s.id = o.showtimes_id
+        LEFT JOIN movie m ON m.id = s.movie_id
+        WHERE o.status = '已支付'
+        <include refid="rangeOnOrder"/>
+        GROUP BY IFNULL(m.name, '（无法归类：场次已删除）')
+        ORDER BY amount DESC
+    </select>
+
+    <select id="topCinemas" resultType="java.util.LinkedHashMap">
+        SELECT
+            IFNULL(c.name, '（无法归类：场次已删除）') AS name,
+            COUNT(o.id)                              AS orders,
+            IFNULL(SUM(o.total_price), 0)            AS amount
+        FROM `order` o
+        LEFT JOIN showtimes s ON s.id = o.showtimes_id
+        LEFT JOIN cinema c ON c.id = s.cinema_id
+        WHERE o.status = '已支付'
+        <include refid="rangeOnOrder"/>
+        GROUP BY IFNULL(c.name, '（无法归类：场次已删除）')
+        ORDER BY amount DESC
+    </select>
+
+    <!-- order_detail.order_id 存的是订单号而不是主键，且有一部分对不上，只能数出来给体检面板看 -->
+    <select id="detailCoverage" resultType="java.util.LinkedHashMap">
+        SELECT
+            COUNT(*)                                                                                   AS totalDetails,
+            IFNULL(SUM(EXISTS(SELECT 1 FROM `order` o WHERE o.order_id = d.order_id)), 0)             AS matchedDetails,
+            COUNT(DISTINCT d.order_id)                                                                 AS distinctOrderNumbers,
+            IFNULL(SUM(d.price IS NULL), 0)                                                            AS nullPriceDetails
+        FROM order_detail d
+    </select>
+
+    <resultMap id="seatMap" type="Showtimes" autoMapping="true">
+        <association property="movie" javaType="Movie" autoMapping="true">
+            <id property="id" column="movie_id"/>
+            <result property="name" column="movie_name"/>
+        </association>
+        <association property="cinema" javaType="Cinema" autoMapping="true">
+            <id property="id" column="cinema_id"/>
+            <result property="name" column="cinema_name"/>
+        </association>
+        <association property="hall" javaType="Hall" autoMapping="true">
+            <id property="id" column="hall_id"/>
+            <result property="hallName" column="hall_name"/>
+        </association>
+    </resultMap>
+
+    <select id="seatSnapshots" resultMap="seatMap">
+        SELECT s.id, s.showdate, s.showtime, s.sale, s.seat,
+               m.name AS movie_name, c.name AS cinema_name, h.hall_name AS hall_name
+        FROM showtimes s
+        LEFT JOIN movie m ON m.id = s.movie_id
+        LEFT JOIN cinema c ON c.id = s.cinema_id
+        LEFT JOIN hall h ON h.id = s.hall_id
+        <where>
+            <if test="start!=null and start!=''">
+                AND s.showdate &gt;= #{start}
+            </if>
+            <if test="end!=null and end!=''">
+                AND s.showdate &lt;= #{end}
+            </if>
+        </where>
+        ORDER BY s.showdate, s.showtime, s.id
+    </select>
+
+</mapper>

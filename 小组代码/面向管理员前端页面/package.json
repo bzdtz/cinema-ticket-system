@@ -1,0 +1,39 @@
+{
+    "name": "vue-manage-system",
+    "version": "5.0.0",
+    "private": true,
+    "scripts": {
+        "serve": "vue-cli-service serve",
+        "build": "vue-cli-service build"
+    },
+    "dependencies": {
+        "axios": "^0.21.1",
+        "core-js": "~3.9.1",
+        "element-china-area-data": "^6.1.0",
+        "element-plus": "1.0.2-beta.33",
+        "moment": "^2.30.1",
+        "vue": "^3.2.0",
+        "vue-cropperjs": "^5.0.0",
+        "vue-i18n": "^9.0.0",
+        "vue-loader-v16": "^16.0.0-beta.5.4",
+        "vue-router": "~4.0.4",
+        "vue-schart": "^2.0.0",
+        "vuex": "~4.0.0",
+        "wangeditor": "^4.7.15"
+    },
+    "devDependencies": {
+        "@vue/cli-plugin-babel": "~5.0.0",
+        "@vue/cli-plugin-router": "~5.0.0",
+        "@vue/cli-plugin-vuex": "~5.0.0",
+        "@vue/cli-service": "~5.0.0",
+        "@vue/compiler-sfc": "~3.2.0",
+        "sass": "~1.32.8",
+        "sass-loader": "~8.0.2",
+        "vue-cli-plugin-element-plus": "0.0.13"
+    },
+    "browserslist": [
+        "> 1%",
+        "last 2 versions",
+        "not dead"
+    ]
+}

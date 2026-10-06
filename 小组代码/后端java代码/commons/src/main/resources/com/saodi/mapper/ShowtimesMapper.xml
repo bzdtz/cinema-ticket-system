@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.saodi.mapper.ShowtimesMapper">
+
+    <resultMap id="map1" type="Showtimes" autoMapping="true">
+        <association property="movie" javaType="Movie" autoMapping="true"/>
+        <association property="hall" javaType="Hall" autoMapping="true"/>
+    </resultMap>
+
+    <select id="getTimeAndHall" resultMap="map1">
+        SELECT s.showtime,s.sale,h.hall_name ,m.langue,m.name,s.id
+            from  showtimes s  ,hall  h ,movie m
+            WHERE
+            s.cinema_id=#{cinemaId} AND
+            s.movie_id=#{movieId} AND
+            s.showdate LIKE concat('%',#{showTime},'%') AND
+            s.hall_id=h.id  and
+            m.id=s.movie_id  and
+            TIMESTAMP(CONCAT(s.showdate, ' ', s.showtime)) - INTERVAL 15 MINUTE > CURRENT_TIMESTAMP
+
+    </select>
+
+
+    <resultMap id="map2" type="Showtimes" autoMapping="true">
+        <association property="movie" javaType="Movie" autoMapping="true">
+            <id property="id" column="movie_id"/>
+            <result property="name" column="movie_name"/>
+        </association>
+        <association property="hall" javaType="Hall" autoMapping="true">
+            <id property="id" column="hall_id"></id>
+            <result property="hallName" column="hall_name"/>
+        </association>
+        <association property="cinema" javaType="Cinema" autoMapping="true">
+            <id property="id" column="cinema_id"></id>
+            <result property="name" column="cinema_name"/>
+        </association>
+    </resultMap>
+    <select id="getByPage" resultMap="map2">
+       select  * from
+        (SELECT s.*, c.name AS cinema_name, m.name AS movie_name, h.hall_name AS hall_name, m.movie_length, DATE_ADD(`showdate` + INTERVAL `showtime` HOUR_SECOND, INTERVAL m.movie_length MINUTE) AS endtime ,account
+        FROM showtimes s
+        JOIN cinema c ON s.cinema_id = c.id
+        JOIN movie m ON s.movie_id = m.id
+        JOIN hall h ON s.hall_id = h.id
+       <where>
+           <if test="status==0 ">
+               and DATE_ADD(`showdate` + INTERVAL `showtime` HOUR_SECOND, INTERVAL m.movie_length MINUTE) &lt; NOW()
+           </if>
+           <if test="status==1">
+               and now() BETWEEN DATE_ADD(showdate,INTERVAL showtime HOUR_SECOND) and DATE_ADD(`showdate` + INTERVAL `showtime` HOUR_SECOND, INTERVAL m.movie_length MINUTE)
+           </if>
+           <if test="status==2">
+               and DATE_ADD(showdate,INTERVAL showtime HOUR_SECOND) &gt; now()
+           </if>
+       </where>) t
+        ${ew.customSqlSegment}
+        order by s.id desc
+    </select>
+
+
+    <resultMap id="map4" type="Showtimes" autoMapping="true">
+        <association property="cinema" javaType="Cinema" autoMapping="true"/>
+    </resultMap>
+    <select id="getByDateQuery" resultMap="map4">
+     SELECT c.*   FROM cinema c
+        JOIN (
+            SELECT DISTINCT cinema_id
+            FROM showtimes
+            <where>
+                movie_id = #{mid}
+                <if test="userDate!=null">
+                    AND showdate like concat('%',#{userDate},'%')
+                </if>
+            </where>
+        ) AS cid
+        ON c.id = cid.cinema_id
+        <where>
+            <if test="brand!=null">
+                and  c.brand like  concat('%',#{brand},'%')
+            </if>
+            <if test="type!=null">
+                and  c.type like  concat('%',#{type},'%')
+            </if>
+            <if test="country!=null">
+                and  c.country like  concat('%',#{country},'%')
+            </if>
+        </where>
+
+        limit  #{startIndex},#{size}
+
+    </select>
+
+    <select id="getByDateQueryCount" resultType="int">
+        SELECT count(0)  FROM cinema c
+        JOIN (
+        SELECT DISTINCT cinema_id
+        FROM showtimes
+        <where>
+            movie_id = #{mid}
+            <if test="userDate!=null">
+                AND showdate like concat('%',#{userDate},'%')
+            </if>
+        </where>
+        ) AS cid
+        ON c.id = cid.cinema_id
+        <where>
+            <if test="brand!=null">
+                and  c.brand like  concat('%',#{brand},'%')
+            </if>
+            <if test="type!=null">
+                and  c.type like  concat('%',#{type},'%')
+            </if>
+            <if test="country!=null">
+                and  c.country like  concat('%',#{country},'%')
+            </if>
+        </where>
+
+    </select>
+
+
+    <resultMap id="map3" type="Showtimes" autoMapping="true">
+        <association property="movie" javaType="Movie" autoMapping="true">
+            <id property="id" column="movie_id"/>
+            <result property="name" column="mname"/>
+        </association>
+        <association property="hall" javaType="Hall" autoMapping="true">
+            <id property="id" column="hall_id"></id>
+            <result property="hallName" column="hall_name"/>
+        </association>
+        <association property="cinema" javaType="Cinema" autoMapping="true">
+            <id property="id" column="movie_id"></id>
+            <result property="name" column="cname"/>
+        </association>
+    </resultMap>
+    <select id="getById" resultMap="map3">
+
+        SELECT showtimes.*,cinema.name cname,movie.name mname,movie.banner,movie.region,movie.movie_length,movie.langue,movie.release_time,hall_name FROM showtimes
+        JOIN cinema on cinema.id = showtimes.cinema_id
+        JOIN movie on movie.id = showtimes.movie_id
+        JOIN hall on hall.id=hall_id
+         ${ew.customSqlSegment}
+    </select>
+</mapper>

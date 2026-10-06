@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.saodi.mapper.RolePermissionMapper">
+
+
+    <resultMap id="map1" type="RolePermission" autoMapping="true">
+        <association property="role" javaType="CinemaUser" autoMapping="true"/>
+        <association property="permission" javaType="Permission" autoMapping="true"/>
+    </resultMap>
+
+
+    <select id="getByRoleId" resultMap="map1">
+        select  p.url,p.`name` from  permission  p , role_permission rp ,cinema_user  cu
+        where  cu.account=#{roleId} and  cu.role=rp.role_id and rp.permission_id=p.id
+    </select>
+
+</mapper>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.saodi.mapper.ActorMovieMapper">
+
+
+    <resultMap id="map1" type="ActorMovie" autoMapping="true">
+        <association property="actor" javaType="Actor" autoMapping="true"/>
+    </resultMap>
+
+    <select id="getByMovieId" resultMap="map1">
+        SELECT a.`name` , am.`character` ,a.img  from actor a , actor_movie am   where a.id=am.act_id  and am.movie_id=#{movieId};
+    </select>
+</mapper>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.saodi.mapper.CinemaMapper">
+
+    <select id="getByPage" resultType="Cinema">
+        SELECT u.*,c.name cname
+        FROM cinema u
+        LEFT JOIN cinema_user c
+        ON c.account=u.account
+        ${ew.customSqlSegment}
+       order  by  u.id desc
+    </select>
+
+</mapper>

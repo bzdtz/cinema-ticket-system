@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.saodi.mapper.HallMapper">
+
+
+
+    <select id="getByPage" resultType="Hall">
+     SELECT h.*,c.name cinema_name
+        from hall h join  cinema c
+         on h.cinema_id=c.id
+        ${ew.customSqlSegment}
+    </select>
+</mapper>

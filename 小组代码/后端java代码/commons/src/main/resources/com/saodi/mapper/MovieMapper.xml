@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.saodi.mapper.MovieMapper">
+
+    <resultMap id="map1" type="Movie" autoMapping="true">
+        <association property="tag" javaType="Tag" autoMapping="true"/>
+    </resultMap>
+
+    <select id="getByWantAndBoxOffice" resultMap="map1">
+          SELECT m.*, t.tag
+          FROM movie m
+          LEFT JOIN tag_movie t ON m.id = t.movieId
+          WHERE CURRENT_TIMESTAMP > m.release_time
+          ORDER BY box_office DESC
+          LIMIT #{size}
+</select>
+
+
+    <select id="getByWant" resultMap="map1">
+        select  m.* ,t.tag
+        from movie m
+        left join  tag_movie t
+        on   m.id=t.movieId
+        where
+         m.release_time > CURRENT_TIMESTAMP
+        order  by m.want_number desc
+         limit #{size}
+    </select>
+
+
+    <resultMap id="map2" type="Movie" autoMapping="true">
+        <association property="movietype" javaType="Movietype" autoMapping="true"/>
+        <association property="movieTypeMapping" javaType="MovieTypeMapping" autoMapping="true"/>
+    </resultMap>
+    <select id="getMovie" resultMap="map2">
+        select m.* from movie m ,movietype mt,movie_type_mapping mtm
+        <where>
+            and mt.id=mtm.type_id and m.id=mtm.movie_id
+            <if test="typeId!=1">
+                and mt.id= #{typeId}
+            </if>
+            <if test="region!=null">
+                and m.region like concat('%',#{region},'%')
+            </if>
+            <if test="year!=null">
+                and m.release_time like concat('%',#{year},'%')
+            </if>
+            <if test="boxOffice!=null">
+                order by m.box_office
+            </if>
+            <if test="releaseTime!=null">
+                order by m.release_time
+            </if>
+
+            <if test="score !=null">
+                order by m.score
+            </if>
+        </where>
+    </select>
+
+
+    <resultMap id="map3" type="Movie" autoMapping="true">
+        <association property="cinema" javaType="Cinema" autoMapping="true"/>
+    </resultMap>
+    <select id="getBanner" resultMap="map3">
+        select m.banner,m.id from (select DISTINCT s.movie_id  from cinema c  ,showtimes s
+            WHERE
+            c.id=1  and
+            s.cinema_id=#{queryId}  and s.showdate > CURRENT_DATE )  new_movie, movie  m
+            where  m.id=new_movie.movie_id ;
+
+    </select>
+
+
+    <select id="getTypeById" resultMap="map2">
+        SELECT mt.typename,mt.id
+            from  movie m,movietype mt  , movie_type_mapping  mtm
+            where
+            m.id=#{movieId}  and
+            mtm.movie_id=m.id    AND
+            mtm.type_id=mt.id   and
+            mt.typename!="全部"
+    </select>
+
+    <select id="getByAccount" resultType="Movie">
+        SELECT DISTINCT movie.*
+        FROM movie
+        JOIN movie_cinema_mapping on movie.id=movie_cinema_mapping.movie_id
+        JOIN cinema ON cinema.account = movie_cinema_mapping.cinema_id
+         ${ew.customSqlSegment}
+    </select>
+
+</mapper>

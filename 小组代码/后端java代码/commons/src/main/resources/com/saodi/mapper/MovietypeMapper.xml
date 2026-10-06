@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.saodi.mapper.MovietypeMapper">
+    <select id="getByPage" resultType="Movietype">
+      SELECT mt.* ,t.count FROM
+        movietype mt LEFT join
+        (SELECT type_id id,count(type_id) count from movie_type_mapping group by type_id) t on t.id=mt.id
+        ${ew.customSqlSegment}
+    </select>
+</mapper>

@@ -1,0 +1,36 @@
+# ---- 构建产物 / 依赖（体积大且可重建，绝不入库）----
+node_modules/
+dist/
+target/
+*.class
+*.jar
+!src/**/*.jar
+
+# 本机下载的 Maven（14M，未全局安装，见 README「构建」一节）
+.tools/
+
+# ---- IDE / 系统 ----
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ---- 日志与临时 ----
+*.log
+startup.log
+hs_err_pid*
+replay_pid*
+
+# ---- 本地私密：含真实凭证，永不入库 ----
+本地不上传/
+**/本地不上传/
+*.local.cmd
+.env
+.env.*
+
+# 备份的数据库导出（含账号哈希 / 个人信息）
+备份/
+
+# 一次性改密脚本（含 bcrypt 哈希，已移入 本地不上传/）
+security-admin-password.sql

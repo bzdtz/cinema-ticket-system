@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.saodi.mapper.OrderMapper">
+<select id="getOrder" resultType="Order">
+    SELECT `order`.*,movie.name moviename,movie.id movieid FROM `order`
+JOIN showtimes on showtimes.id=`order`.showtimes_id
+JOIN movie on movie.id=showtimes.movie_id
+where user_id=#{id}
+</select>
+
+
+    <resultMap id="map1" type="Order" autoMapping="true">
+        <association property="showtimes" javaType="Showtimes" autoMapping="true"/>
+        <association property="user" javaType="User" autoMapping="true"/>
+    </resultMap>
+
+    <select id="getUserAndOrder" resultMap="map1">
+
+        SELECT  u.user_name,u.phone,u.head_img,u.age,o.* from  `order`  o, `user` u ,showtimes s
+
+        <where>
+            u.id=o.user_id
+            and
+            s.id =o.showtimes_id
+            <if test="name!=null">
+                and  u.user_name like concat('%',#{name},'%')
+            </if>
+            <if test="userId!=null">
+                and  o.user_id = #{userId}
+            </if>
+            <if test="cinemaId!=null">
+                and  s.cinema_id=#{cinemaId}
+            </if>
+            <if test="orderId!=null">
+                and  o.order_id=#{orderId}
+            </if>
+        </where>
+
+        limit  #{startIndex},#{size}
+    </select>
+
+    <select id="getCount" resultType="int">
+        SELECT  count(0) from  `order`  o, `user` u ,showtimes s
+
+        <where>
+            u.id=o.user_id
+            and
+            s.id =o.showtimes_id
+            <if test="name!=null">
+                and  u.user_name like concat('%',#{name},'%')
+            </if>
+            <if test="userId!=null">
+                and  o.user_id = #{userId}
+            </if>
+            <if test="cinemaId!=null">
+                and  s.cinema_id=#{cinemaId}
+            </if>
+            <if test="orderId!=null">
+                and  o.order_id=#{orderId}
+            </if>
+        </where>
+    </select>
+
+
+    <resultMap id="map2" type="Order" autoMapping="true">
+
+        <association property="hall" javaType="Hall" autoMapping="true"/>
+        <association property="movie" javaType="Movie" autoMapping="true">
+            <result column="movieName" property="name"/>
+        </association>
+        <association property="cinema" javaType="Cinema" autoMapping="true"/>
+        <association property="showtimes" javaType="Showtimes" autoMapping="true"/>
+    </resultMap>
+
+<!--    需要加些限制条件 用于某个影院id的限制-->
+    <select id="getOrderDetail" resultMap="map2">
+       SELECT  c.*,h.hall_name,m.`name` movieName ,m.banner,s.showdate,s.showtime ,o.*,s.seat seat from `order`   o ,showtimes s  ,cinema c,movie m ,hall h
+        where
+        o.order_id=#{orderId} AND
+        o.showtimes_id =s.id  and
+        m.id=s.movie_id and
+        h.id=s.hall_id and
+        c.id=s.cinema_id ;
+
+    </select>
+
+
+
+
+
+
+
+</mapper>
