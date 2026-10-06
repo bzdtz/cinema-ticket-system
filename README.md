@@ -11,14 +11,15 @@
 ## 架构
 
 ```
-小组代码/
-├─ 后端java代码/            Maven 多模块（SpringBoot 2.7.3 / Java 8 / MyBatis-Plus）
+cinema-ticket-system/
+├─ 后端java代码/             Maven 多模块（SpringBoot 2.7.3 / Java 8 / MyBatis-Plus）
 │  ├─ commons/             实体、Mapper、Service、工具、全局异常、七牛配置   133 个 .java
 │  ├─ ai-agent/     [2026] LLM 客户端 + tool-calling 循环 + 规则兜底          16 个 .java
 │  ├─ app/                 面向用户端 API        :81  context-path /app      35 个 .java
 │  └─ manager/             面向管理端 API        :80  context-path /         32 个 .java
 ├─ 面向用户/                Vue 3 + Element Plus 2.4  开发端口 8080           17 个 .vue
-└─ 面向管理员前端页面/       Vue 3 + Element Plus 1.0  开发端口 8081           45 个 .vue
+├─ 面向管理员前端页面/       Vue 3 + Element Plus 1.0  开发端口 8081           45 个 .vue
+└─ sql/                    建库脚本与带日期后缀的增量迁移
 ```
 
 数据层：MySQL 库名 `theater`（27 张表）+ Redis（管理端会话存储、未支付订单的 key 过期监听）。
@@ -89,7 +90,7 @@ JDK 8、Maven 3.9、MySQL 5.7+、Redis、Node 16+。
 ```sql
 CREATE DATABASE theater DEFAULT CHARSET utf8mb4;
 ```
-导入 `小组代码/all.sql`（演示数据），再按需执行 `小组代码/` 下带日期后缀的迁移脚本。
+导入 `sql/all.sql`（演示数据），再按需执行 `sql/` 下带日期后缀的迁移脚本。
 
 > `all.sql` 里**不含任何账号数据**：原始 dump 里有 29 行用户/管理员账号及其密码哈希，提交前已删除这些行。所以初始状态没有可登录账号，请这样获得一个：
 > 1. 打开用户端注册一个普通账号；
@@ -101,7 +102,7 @@ CREATE DATABASE theater DEFAULT CHARSET utf8mb4;
 
 ```bat
 set JAVA_HOME=<你的 JDK8 路径>
-cd 小组代码\后端java代码
+cd 后端java代码
 mvn -B install -DskipTests
 mvn -B -pl manager spring-boot:run -Dspring-boot.run.jvmArguments="-Dfile.encoding=UTF-8"
 mvn -B -pl app     spring-boot:run -Dspring-boot.run.jvmArguments="-Dfile.encoding=UTF-8"
@@ -115,8 +116,8 @@ mvn -B -pl app     spring-boot:run -Dspring-boot.run.jvmArguments="-Dfile.encodi
 ### 3. 前端
 
 ```bat
-cd 小组代码\面向用户          & npm install & npm run serve    REM :8080
-cd 小组代码\面向管理员前端页面  & npm install & npm run serve    REM :8081
+cd 面向用户              & npm install & npm run serve    REM :8080
+cd ..\面向管理员前端页面   & npm install & npm run serve    REM :8081
 ```
 
 两个前端**是 vue-cli 5 / webpack，不是 Vite**。改 `.vue` 之后别去 grep `js/app.js`，懒加载 chunk 名是 `js/src_views_Login_vue.js`（用户端）、`js/login.js`（管理端登录）、`js/icon.js`（管理端多个页面共享的 chunk）。
