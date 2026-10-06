@@ -27,7 +27,10 @@ replay_pid*
 **/本地不上传/
 *.local.cmd
 .env
-.env.*
+.env.local
+.env.*.local
+# 说明：.env.development / .env.production 只有一个 API 基址，是项目配置，入库。
+# 真密钥请放 .env.local（已被上面两条规则排除）。
 
 # 备份的数据库导出（含账号哈希 / 个人信息）
 备份/

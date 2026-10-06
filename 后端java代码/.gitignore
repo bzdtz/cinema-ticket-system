@@ -29,5 +29,9 @@ polymerizationDemo1219.iml
 /manager/target/
 /commons/target/
 /app/target/
-/manager/src/main/resources/
-/app/src/main/resources/
+
+# 原来这里忽略了整个 manager/app 的 src/main/resources/，
+# 结果 application.yml 根本不在版本库里，克隆下来起不了服务。
+# 现在把配置纳管，密钥一律走环境变量（见文件里的 ${VAR:} 写法）。
+application-local.yml
+*.local.yml

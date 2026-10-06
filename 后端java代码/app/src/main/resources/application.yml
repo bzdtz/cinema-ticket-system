@@ -1,0 +1,49 @@
+server:
+  port: 81
+  servlet:
+    context-path: /app
+mybatis-plus:
+  mapper-locations: classpath:com/saodi/mapper/*Mapper.xml
+  type-aliases-package: com.saodi.po
+  configuration:
+    map-underscore-to-camel-case: true  #关闭驼峰转换下划线
+spring:
+  datasource:
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      url: jdbc:mysql://localhost:3306/theater
+      username: root
+      password: ${MYSQL_PASSWORD:1234}
+  redis:
+    # 与 manager 保持一致：本机 Redis 没设 requirepass，写死密码会让 Lettuce 的 AUTH 被拒。
+    # 需要密码时 set REDIS_PASSWORD=xxx，别把口令写回文件。
+    password: ${REDIS_PASSWORD:}
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+
+  servlet:
+    multipart:
+      max-file-size: 5MB
+logging:
+  level:
+    com.saodi: trace
+
+# 影院智能体。api-key 留空时自动退到规则兜底，功能照常可用。
+# 端点是 OpenAI 兼容的 /v1/chat/completions；换模型只改 model 这一行。
+# key 也可以不写在这里：set SENSENOVA_API_KEY=sk-xxx 后启动，环境变量优先。
+ai:
+  api-key: ${SENSENOVA_API_KEY:}
+  base-url: https://token.sensenova.cn/v1
+  model: deepseek-v4-flash
+  max-tool-rounds: 5
+  timeout-ms: 30000
+
+# 对象存储（头像上传）。密钥不再写在 java 源码里，走环境变量注入：
+#   set QINIU_ACCESS_KEY=xxx
+#   set QINIU_SECRET_KEY=yyy
+# 没配时上传接口直接返回 511，不会拿泄露过的旧 key 去请求。
+qiniu:
+  access-key: ${QINIU_ACCESS_KEY:}
+  secret-key: ${QINIU_SECRET_KEY:}
+  bucket: ${QINIU_BUCKET:saodi-movie}
+  domain: ${QINIU_DOMAIN:http://s6gtr7r2k.hb-bkt.clouddn.com}
