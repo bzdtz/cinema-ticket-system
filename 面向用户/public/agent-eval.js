@@ -58,15 +58,22 @@
         {id: 'C1', cat: '查场次', q: '海王2有哪些场次', need: ['find_showtimes'], any: ['list_movies', 'find_showtimes'], must: ['场次|排片|id']},
         {id: 'C2', cat: '查场次', q: '照明商店 2024-01-03 的场次', need: ['find_showtimes'], any: ['list_movies', 'find_showtimes'], must: ['2024-01-03|01-03|00:00']},
         {id: 'C3', cat: '查场次', q: '新乡万达影城一共有几场排片', any: ['find_showtimes', 'list_cinemas'], must: ['13']},
-        {id: 'C4', cat: '查场次', q: '场次21是几点', need: ['find_showtimes'], must: ['14:00']},
+        // seat_summary 返回的行里同样带 date/time，用它答 14:00 不算绕路，所以两条路都认
+        {id: 'C4', cat: '查场次', q: '场次21是几点', any: ['find_showtimes', 'seat_summary'], must: ['14:00']},
         {id: 'C5', cat: '查场次', q: '最便宜的场次多少钱', need: ['find_showtimes'], must: ['12']},
-        {id: 'C6', cat: '查场次', q: '场次27是什么电影', must: ['查不到|没有|不存在|找不到|没查到|取不到'], mustNot: ['怒潮|海王|照明|三大队|死侍']},
+        // 场次 27 挂在已删影院/影厅上（孤儿数据），app 的 getById 是 INNER JOIN 所以查不出来，
+        // 但智能体走的是 ShowtimeReader.find()：JOIN 不出来就按主键直查，片名照样能取到。
+        // 上一版口径按「老实说取不到」判，把正确答案《大雨》判成了不过——库里 movie_id=51 就是大雨。
+        {id: 'C6', cat: '查场次', q: '场次27是什么电影', any: ['find_showtimes', 'seat_summary'], must: ['大雨'], mustNot: ['怒潮|海王|照明|三大队|死侍']},
         // D 座位摘要
         {id: 'D1', cat: '座位', q: '这场还剩多少个空位', ctx: {showtimeId: 21}, need: ['seat_summary'], freeCount: true},
         {id: 'D2', cat: '座位', q: '帮我挑两个连座', ctx: {showtimeId: 21}, need: ['seat_summary'], seatsFree: true},
         {id: 'D3', cat: '座位', q: '我们6个人能坐一起吗', ctx: {showtimeId: 21}, need: ['seat_summary'], seatsFree: true, must: ['可以|能|凑不齐|不能|没']},
         {id: 'D4', cat: '座位', q: '这场空位多吗', ctx: {showtimeId: 10}, need: ['seat_summary'], must: ['不多|很少|只剩|紧张|没几个|2 ?个|两个']},
-        {id: 'D5', cat: '座位', q: '哪个场次人最少', need: ['seat_summary'], any: ['find_showtimes', 'seat_summary']},
+        // 「人最少」有两种读法：空位最多（119，场次 12/19/21）还是已售最少（0，场次 32）。
+        // 两种都算答对，但报出来的数得是真的；反问用户要看哪部、或者拿没查过的场次下结论都判不过。
+        {id: 'D5', cat: '座位', q: '哪个场次人最少', any: ['find_showtimes', 'seat_summary'],
+            must: ['已售 ?0 ?座|空[座位]? ?(100|119)'], mustNot: ['告诉.{0,10}(片名|电影)', '其他场次均']},
         {id: 'D6', cat: '座位', q: '7排5座还空着吗', ctx: {showtimeId: 12}, need: ['seat_summary'], seatsExist: true},
         // E 草稿
         {id: 'E1', cat: '草稿', q: '挑两个连座，直接出草稿', ctx: {showtimeId: 21}, need: ['seat_summary', 'draft_order'], draft: true, seatsFree: true, limit: 200},
@@ -85,15 +92,22 @@
     function token() {
         var raw = localStorage.getItem('token');
         if (!raw) {
-            throw new Error('先登录，评测要用户会话');
+            throw new Error('NO_TOKEN 先登录，评测要用户会话');
         }
         return raw.slice(1, -1);
     }
 
     function post(path, body) {
+        var t;
+        try {
+            t = token();
+        } catch (e) {
+            // 让取 token 失败也走 Promise，否则 runAll 的链子在第一条上同步炸掉，剩下 29 条根本不跑
+            return Promise.reject(e);
+        }
         return fetch(BASE + path, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json', token: token()},
+            headers: {'Content-Type': 'application/json', token: t},
             body: JSON.stringify(body || {})
         }).then(function (r) {
             return r.json();
@@ -175,7 +189,12 @@
 
         if (raw.code !== 200) {
             problems.push('接口返回 ' + raw.code + ' ' + (raw.msg || ''));
-            return {problems: problems, steps: steps, engine: engine, text: text, chars: cleanText(text).length};
+            // 这条早退必须也返回 Promise：少写一层 resolve 时 runAll 会在第一条炸掉，
+            // 剩下 29 条全变成 "checkOne(...).then is not a function"，看着像全站挂了。
+            return Promise.resolve({
+                problems: problems, steps: steps, rawSteps: data.steps || [], engine: engine,
+                text: text, chars: cleanText(text).length, repeat: 1
+            });
         }
         if (!text.trim()) {
             problems.push('空答复');
@@ -238,7 +257,7 @@
                     }
                 });
                 if (c.freeCount) {
-                    var m = text.match(/(?:还剩|剩下|剩)\s*(\d+)/);
+                    var m = text.match(/(?:还剩|剩下|剩)[\s*#]*([0-9]+)/);
                     if (!m) {
                         problems.push('没报空位数');
                     } else if (Number(m[1]) !== st.free) {
@@ -326,6 +345,10 @@
             tries++;
             return attempt(c, body, started).then(function (r) {
                 r.attempts = tries;
+                // 会话挂了每条都会立刻 501，继续跑只是把 30 条都记成失败；直接停，让人去登录
+                if (r.httpCode === 501 || (r.problems || []).join('').indexOf('NO_TOKEN') >= 0) {
+                    STATE.abort = '会话没了（501 或者 localStorage 里没 token）：重新登录后再 AgentEval.runAll()';
+                }
                 // 被限流打回规则兜底的不算这条问句的答案，等一下再问一次
                 if (tries < MAX_ATTEMPTS && THROTTLED.test(r.text)) {
                     return sleep(RETRY_WAIT_MS).then(go);
@@ -336,7 +359,7 @@
         return go();
     }
 
-    var STATE = {cases: CASES, results: {}, done: 0, running: false};
+    var STATE = {cases: CASES, results: {}, done: 0, running: false, abort: null};
 
     function runAll() {
         if (STATE.running) {
@@ -345,9 +368,13 @@
         STATE.running = true;
         STATE.results = {};
         STATE.done = 0;
+        STATE.abort = null;
         var chain = Promise.resolve();
         CASES.forEach(function (c) {
             chain = chain.then(function () {
+                if (STATE.abort) {
+                    return;
+                }
                 return sleep(GAP_MS).then(function () {
                     return runCase(c);
                 }).then(function (r) {
@@ -358,7 +385,7 @@
         });
         return chain.then(function () {
             STATE.running = false;
-            return report();
+            return STATE.abort ? STATE.abort : report();
         });
     }
 
@@ -462,6 +489,7 @@
             stCache = {};
             STATE.results = {};
             STATE.done = 0;
+            STATE.abort = null;
         }
     };
 })();
