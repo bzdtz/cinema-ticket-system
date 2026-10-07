@@ -5,6 +5,7 @@ import com.saodi.ai.tool.FindShowtimesTool;
 import com.saodi.ai.tool.ListCinemasTool;
 import com.saodi.ai.tool.ListMoviesTool;
 import com.saodi.ai.tool.SeatSummaryTool;
+import com.saodi.ai.tool.ToolContext;
 import com.saodi.ai.vo.AiReply;
 import com.saodi.ai.vo.AiRequest;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -151,7 +152,8 @@ public class RuleAssistant {
         Map<String, Object> args = new LinkedHashMap<>();
         args.put("showtimeId", showtimeId);
         args.put("seats", suggestion.get("seats"));
-        Map<String, Object> result = asMap(draftOrderTool.execute(args));
+        // 规则兜底也要带上身份，否则这条路径出的草稿没有确认凭证
+        Map<String, Object> result = asMap(draftOrderTool.execute(args, new ToolContext(request.getUserId())));
         reply.getSteps().add("draft_order");
 
         if (!Boolean.TRUE.equals(result.get("ok"))) {

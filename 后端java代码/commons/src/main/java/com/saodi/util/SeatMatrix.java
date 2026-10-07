@@ -98,6 +98,29 @@ public final class SeatMatrix {
         return value != null && value == VALUE_FREE;
     }
 
+    /**
+     * 写回库里用的紧凑形式，和 parse() 同源：行内逗号分隔、行间 "],["。
+     * 服务端改完矩阵必须走这里序列化，不能拿前端传来的字符串直接覆盖。
+     */
+    public static String serialize(List<List<Integer>> grid) {
+        StringBuilder text = new StringBuilder("[");
+        for (int r = 0; r < grid.size(); r++) {
+            if (r > 0) {
+                text.append(',');
+            }
+            text.append('[');
+            List<Integer> row = grid.get(r);
+            for (int c = 0; c < row.size(); c++) {
+                if (c > 0) {
+                    text.append(',');
+                }
+                text.append(row.get(c));
+            }
+            text.append(']');
+        }
+        return text.append(']').toString();
+    }
+
     private static int parseInt(String token) {
         try {
             return Integer.parseInt(token);

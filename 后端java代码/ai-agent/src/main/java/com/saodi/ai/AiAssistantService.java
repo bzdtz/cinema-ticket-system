@@ -2,6 +2,7 @@ package com.saodi.ai;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.saodi.ai.tool.ToolContext;
 import com.saodi.ai.tool.ToolRegistry;
 import com.saodi.ai.vo.AiReply;
 import com.saodi.ai.vo.AiRequest;
@@ -58,6 +59,9 @@ public class AiAssistantService {
         messages.addAll(history(request));
         messages.add(message("user", request.getMessage() == null ? "" : request.getMessage()));
 
+        // 身份从登录态来，不从模型的文本来：模型能决定查什么，决定不了以谁的身份查
+        ToolContext context = new ToolContext(request.getUserId());
+
         AiReply reply = new AiReply();
         // engine 报"是哪个模型答的"，不是写死的厂商名。兜底路径那边报 "rule"，
         // 前端靠这个值区分「模型」和「规则兜底」，所以这里必须给真模型名。
@@ -75,7 +79,7 @@ public class AiAssistantService {
                         ? new LinkedHashMap<>()
                         : mapper.readValue(call.getArgumentsJson(), new TypeReference<Map<String, Object>>() {
             });
-                String outcome = registry.run(call.getName(), args);
+                String outcome = registry.run(call.getName(), args, context);
                 List<String> steps = reply.getSteps();
                 int last = steps.size() - 1;
                 if (last >= 0 && steps.get(last).startsWith(call.getName())) {
@@ -85,7 +89,7 @@ public class AiAssistantService {
                 } else {
                     steps.add(call.getName());
                 }
-                messages.add(message("tool", outcome, call.getId()));
+                messages.add(message("tool", withholdToken(outcome), call.getId()));
                 if ("draft_order".equals(call.getName())) {
                     captureDraft(reply, outcome);
                 }
@@ -110,6 +114,7 @@ public class AiAssistantService {
                 .append("规则：\n")
                 .append("1. 影片、影院、场次、余座、价格一律用工具查真实数据，查不到就说查不到，禁止编造 id 或数字。\n")
                 .append("2. 你不能下单。draft_order 只产出草稿，用户必须自己在页面上点确认；不要说\"已下单\"这类话。\n")
+                .append("   确认凭证不会出现在你看到的工具结果里，所以你也没有替用户提交的办法，别去猜。\n")
                 .append("3. 工具返回的座位行列是 0 下标，讲给用户时必须 +1，说成\"X排Y座\"。\n")
                 .append("4. 推荐影院前先确认它有排片，排片为 0 的影院点进去是空的。\n")
                 .append("5. 用中文，120 字以内，列清单时一行一个。\n")
@@ -172,6 +177,25 @@ public class AiAssistantService {
         message.put("content", answer.getContent() == null ? "" : answer.getContent());
         message.put("tool_calls", calls);
         return message;
+    }
+
+    /**
+     * 确认凭证只交给浏览器，不进模型上下文——模型拿不到令牌，也就没有替用户点确认的途径。
+     * 解析不动时宁可整条换成错误，也不把可能带令牌的原文回给模型。
+     */
+    private String withholdToken(String outcome) {
+        if (outcome == null || !outcome.contains("confirmToken")) {
+            return outcome;
+        }
+        try {
+            Map<String, Object> payload = mapper.readValue(outcome,
+                    new TypeReference<Map<String, Object>>() {
+                    });
+            payload.remove("confirmToken");
+            return mapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            return "{\"error\":\"草稿已生成，但工具结果没能回传给模型\"}";
+        }
     }
 
     private void captureDraft(AiReply reply, String outcome) {

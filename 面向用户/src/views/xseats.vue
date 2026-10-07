@@ -71,7 +71,7 @@
                         <li>座位：<span class="zw" v-html="selectShow"></span></li>
                         <li>
                             已选择<b class="color-red sit">{{ selectedSeats.length }}</b>个座位，
-                            <b class="color-red ">您最多一次只能买5张票！</b>
+                            <b class="color-red ">您最多一次只能买{{ maxSeats }}张票！</b>
                         </li>
                     </ul>
                     <div class="pic_count">
@@ -91,9 +91,6 @@
 </template>
 
 <script>
-    import {customAlphabet} from 'nanoid'
-
-    const nanoid = customAlphabet('1234567890', 9)
     import {ElMessage} from 'element-plus'
 
     export default {
@@ -101,7 +98,8 @@
             return {
                 seats: [],
                 selectedSeats: [],
-                maxSeats: 5,
+                // 和座位摘要工具的连座上限、以及页面上那句「一次最多选6个座位」对齐
+                maxSeats: 6,
                 ticketPrice: 38,
                 selectShow: "一次最多选6个座位",
                 movie: {},
@@ -110,7 +108,8 @@
                 hall: {},
                 time: '',
                 order: '',
-                na: '',
+                // 智能体草稿签发的一次性凭证；手动改动任何座位就作废
+                confirmToken: '',
                 mes: {}
             };
         },
@@ -134,6 +133,8 @@
                     }
                     this.selectedSeats.push({rowIndex, seatIndex});
                     this.seats[rowIndex][seatIndex] = 'p0';
+                    // 座位集合和草稿不一样了，凭证当场作废
+                    this.confirmToken = ''
 
 
                 } else if (this.selectedSeats.length <= this.maxSeats && seat === 'p0' && seat !== 'p60') {
@@ -146,12 +147,13 @@
                     if (index !== -1) {
                         this.selectedSeats.splice(index, 1);
                         this.seats[rowIndex][seatIndex] = '';
+                        this.confirmToken = ''
                     }
 
                 } else if (seat === 'p60') {
                     return false;
                 } else {
-                    alert('您最多只能买五张票！');
+                    alert('一次最多选 ' + this.maxSeats + ' 个座位！');
                 }
 
             if (this.selectedSeats.length == 0) {
@@ -189,23 +191,6 @@
             }
             return t
         },
-        CssToInt() {
-            let t = this.seats
-            for (var i = 0; i < t.length; i++) {
-                for (var j = 0; j < t[i].length; j++) {
-                    if (t[i][j] == '') {
-                        t[i][j] = 0
-                    } else if (t[i][j] == 'p60' || t[i][j] == 'p0') {
-                        t[i][j] = 1
-                    } else if (t[i][j] == 'p90') {
-                        t[i][j] = -1
-                    } else if (t[i][j] == 'damaged') {
-                        t[i][j] = -2
-                    }
-                }
-            }
-            return JSON.stringify(t)
-        },
         applyAiDraft() {
             const raw = localStorage.getItem('aiDraft')
             if (!raw) {
@@ -232,103 +217,116 @@
                 this.selectSeat(row, col)
                 applied.push(seat.label || ((row + 1) + '排' + (col + 1) + '座'))
             })
-            if (applied.length > 0) {
-                this.selectShow = '智能体已选好：' + applied.join('、') + '，确认无误再下单'
+            if (applied.length === 0) {
+                this.selectShow = '智能体推荐的位子已经有部分被占了，重新要一份草稿吧'
+                return
+            }
+            const wanted = (draft.seats || []).length
+            if (draft.confirmToken && applied.length === wanted) {
+                // 座位集合和草稿完全一致，凭证才留着；一旦用户手改座位就会被丢弃
+                this.confirmToken = draft.confirmToken
+                const minutes = Math.max(1, Math.round((draft.confirmExpiresInSeconds || 600) / 60))
+                this.selectShow = '智能体已选好：' + applied.join('、') + '，' + minutes + ' 分钟内点确认有效'
+            } else {
+                this.selectShow = '智能体已选好：' + applied.join('、')
+                    + (applied.length < wanted ? '（有 ' + (wanted - applied.length) + ' 个位子已经被占了）' : '')
+                    + '，确认无误再下单'
             }
         },
         toPayment() {
 
             if (this.selectedSeats.length == 0) {
                 ElMessage({
-                    message: '您还没有选座位！！！',
-                    type: 'warning',
-                })
-                ElMessage({
                     message: '请选择座位后再下单',
                     type: 'warning',
                 })
                 return
             }
-            this.na = nanoid()
-            console.log(this.CssToInt());
+            // 只交「哪一场、订哪几格、有没有确认凭证」。
+            // 价格、矩阵、订单号都由服务端定，本地那份 totalPrice 只是提交前的预估显示
             this.$axios({
                 method: 'post',
                 url: '/app/order/add',
                 data: {
-                    status: '未支付',
-                    totalPrice: this.totalPrice,
-                    orderId: this.na,
-                    userId: JSON.parse(localStorage.getItem("loginUser")).id,
-                    showtimesId: this.$route.query.showtimes,
-                    seat: this.CssToInt()
+                    showtimesId: Number(this.$route.query.showtimes),
+                    seats: this.selectedSeats.map(e => [e.rowIndex, e.seatIndex]),
+                    confirmToken: this.confirmToken
                 }
             }).then((result) => {
-                console.log(result.data);
-                this.order = result.data.data
-            }).catch((err) => {
-
-                });
-                let lis = []
-                this.selectedSeats.forEach(e => {
-                    lis.push({
-                        seat: "[" + e.rowIndex + "," + e.seatIndex + "]",
-                        orderId: this.na,
-                        price: this.ticketPrice
+                const placed = result.data && result.data.code === 200 ? result.data.data : null
+                if (!placed || !placed.orderId) {
+                    // 座位被抢、凭证过期、有位子不可售——服务端说什么就显示什么，然后把矩阵重新拉一次
+                    ElMessage({
+                        message: (result.data && result.data.msg) || '下单没成功，请重新选座',
+                        type: 'warning',
                     })
-                })
-                console.log(lis);
-                this.$axios({
-                    method: 'post',
-                    url: '/app/order-detail/addSeat',
-                    data: lis
-                })
-
-
+                    this.reloadSeats()
+                    return
+                }
+                this.order = placed.orderId
+                this.confirmToken = ''
                 this.mes = {
-                    movieName: this.movie.name,
-                    showTime: this.time,
-                    cinema: this.cinema.name,
-                    hallName: this.hall.hallName,
+                    movieName: placed.movie || this.movie.name,
+                    showTime: placed.date && placed.time ? (placed.date + ' ' + placed.time) : this.time,
+                    cinema: placed.cinema || this.cinema.name,
+                    hallName: placed.hall || this.hall.hallName,
                     selectSeat: this.selectedSeats,
-                    total:this.totalPrice,
-                    orderId:this.na
+                    total: placed.total,
+                    orderId: placed.orderId
                 };
-
-                console.log(this.mes);
-                let  message = Object.assign({}, this.mes)
-
-
-                // this.$router.push({path: '/payment', query: {row: encodeURIComponent(JSON.stringify(message))}});
                 this.$router.push({path: '/payment', query: {row: encodeURIComponent(JSON.stringify(this.mes))}});
-
-
-
-
+            }).catch(() => {
+                ElMessage({
+                    message: '下单请求没送到后端，确认一下 app 服务在不在跑',
+                    type: 'warning',
+                })
+            })
+            },
+            // 下单失败之后本地矩阵已经不可信：清掉已选、重新读一次真实座位状态
+            reloadSeats() {
+                this.selectedSeats = []
+                this.confirmToken = ''
+                this.loadShowtime()
+                this.selectShow = '座位状态已经刷新，重新选一次吧'
+            },
+            loadShowtime() {
+                return this.$axios({
+                    method: 'post',
+                    url: '/app/showtimes/getById/' + this.$route.query.showtimes
+                }).then((result) => {
+                    const showtime = result.data.data
+                    if (!showtime) {
+                        return
+                    }
+                    if (showtime.seat != null && showtime.seat !== '') {
+                        this.seats = this.intToCss(showtime.seat)
+                    }
+                    this.cinema = showtime.cinema
+                    this.ticketPrice = showtime.sale
+                    this.movie = showtime.movie
+                    this.hall = showtime.hall
+                    this.time = showtime.showdate + " " + showtime.showtime
+                    this.applyAiDraft()
+                }).catch(() => {
+                    // 读不到场次就维持现状，至少不把你已经选好的座位抹掉
+                })
             },
 
         },
-        mounted() {
-            console.log(this.$route.query)
-            this.$axios({
-                method: 'post',
-                url: '/app/showtimes/getById/' + this.$route.query.showtimes
-
-            }).then((result) => {
-
-                console.log(result.data.data);
-                if (result.data.data.seat != null && result.data.data.seat != '') {
-                    this.seats = this.intToCss(result.data.data.seat)
+        // 在选座页上直接问智能体时，「就按这个下单」推的是同一个路由：
+        // 组件实例被复用，mounted 不会再跑，草稿就得靠这里重新应用。
+        watch: {
+            '$route.query.showtimes'(to, from) {
+                if (to !== from) {
+                    // 换场次：上一场的选择和那一场的凭证都不能带过去
+                    this.reloadSeats()
                 }
-                this.applyAiDraft()
-
-                this.cinema = result.data.data.cinema
-                this.ticketPrice = result.data.data.sale
-                this.movie = result.data.data.movie
-                this.hall = result.data.data.hall
-                this.time = result.data.data.showdate + " " + result.data.data.showtime
-            }).catch((err) => {
-
-            });
+            }
+        },
+        mounted() {
+            // 同一路由不会重新挂载，AiAssistant 选完草稿后直接喊这一声
+            window.addEventListener('ai-draft-apply', this.applyAiDraft)
+            this.loadShowtime()
             this.$axios({
                 method: 'get',
                 url: 'app/movie/type/' + "10",
@@ -338,6 +336,9 @@
             }).catch((err) => {
 
             });
+        },
+        beforeUnmount() {
+            window.removeEventListener('ai-draft-apply', this.applyAiDraft)
         }
     };
 </script>

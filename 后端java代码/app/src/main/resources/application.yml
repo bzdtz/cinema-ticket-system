@@ -29,14 +29,21 @@ logging:
     com.saodi: trace
 
 # 影院智能体。api-key 留空时自动退到规则兜底，功能照常可用。
-# 端点是 OpenAI 兼容的 /v1/chat/completions；换模型只改 model 这一行。
-# key 也可以不写在这里：set SENSENOVA_API_KEY=sk-xxx 后启动，环境变量优先。
+# 端点是 OpenAI 兼容的 /chat/completions，接入方、模型、key 全走环境变量，换模型不改代码：
+#   set AI_API_KEY=sk-xxx
+#   set AI_BASE_URL=https://chat.intern-ai.org.cn/api/v1
+#   set AI_MODEL=intern-s2-preview
+# 下面这组默认值是实测过完整 tool 回路（要工具 → 喂回结果 → 出正文）的一家；
+# 换 SenseNova 只改后两行：https://token.sensenova.cn/v1 + deepseek-v4-flash。
+# 各家限流不一样，撞到 429 时前端会明说「模型这次没叫通」并退到查库拼出来的那版。
 ai:
-  api-key: ${SENSENOVA_API_KEY:}
-  base-url: https://token.sensenova.cn/v1
-  model: deepseek-v4-flash
+  api-key: "${AI_API_KEY:}"
+  base-url: "${AI_BASE_URL:https://chat.intern-ai.org.cn/api/v1}"
+  model: "${AI_MODEL:intern-s2-preview}"
   max-tool-rounds: 5
   timeout-ms: 30000
+  # 草稿确认凭证在 Redis 里存多久；过期后要重新要一份草稿
+  draft-ttl-seconds: 600
 
 # 对象存储（头像上传）。密钥不写在源码里，四项全部走环境变量注入：
 #   set QINIU_ACCESS_KEY=xxx

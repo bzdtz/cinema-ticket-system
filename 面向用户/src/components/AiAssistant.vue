@@ -24,7 +24,9 @@
                         <p class="ai-draft-line">{{ m.draft.cinema }} {{ m.draft.hall }}</p>
                         <p class="ai-draft-line">{{ seatLabels(m.draft) }} · 合计 {{ m.draft.total }} 元</p>
                         <button class="ai-draft-btn" @click="useDraft(m.draft)">就按这个下单</button>
-                        <p class="ai-draft-note">我只负责选好，最后一步你自己点。</p>
+                        <p class="ai-draft-note">{{ m.draft.confirmToken
+                            ? '我只负责选好座位，最后一步由你在页面上点确认，这枚凭证十分钟内有效。'
+                            : '我只负责选好，最后一步你自己点。' }}</p>
                     </div>
                 </div>
                 <div v-if="busy" class="ai-msg assistant"><span class="ai-text">正在查…</span></div>
@@ -135,9 +137,22 @@ export default {
         useDraft(draft) {
             localStorage.setItem('aiDraft', JSON.stringify({
                 showtimeId: draft.showtimeId,
-                seats: draft.seats || []
+                seats: draft.seats || [],
+                // 确认凭证只在浏览器这一侧流转，模型那边拿不到它
+                confirmToken: draft.confirmToken || '',
+                confirmExpiresInSeconds: draft.confirmExpiresInSeconds || 600
             }));
-            this.$router.push({path: '/xseats', query: {showtimes: draft.showtimeId}});
+            const target = {path: '/xseats', query: {showtimes: draft.showtimeId}};
+            // 人就在这一场的选座页上问的：路由没变，组件不会重新 mounted，
+            // 只 push 的话草稿就躺在 localStorage 里没人应用，得自己喊一声。
+            const samePage = this.$route.path === target.path
+                && String(this.$route.query.showtimes) === String(target.query.showtimes);
+            this.$router.push(target).catch(() => {
+                // 重复导航本来就该忽略，草稿已经在 localStorage 里了
+            });
+            if (samePage) {
+                window.dispatchEvent(new CustomEvent('ai-draft-apply'));
+            }
         },
         seatLabels(draft) {
             return (draft.seats || []).map(seat => seat.label).join('、');

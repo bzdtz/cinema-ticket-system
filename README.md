@@ -126,7 +126,7 @@ cd ..\面向管理员前端页面   & npm install & npm run serve    REM :8081
 
 | 变量 | 作用 | 不配会怎样 |
 |---|---|---|
-| `SENSENOVA_API_KEY` 及 `ai.*` | 智能体的大模型 | AI 浮窗走规则兜底，仍可用 |
+| `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` | 智能体的大模型（OpenAI 兼容端点） | AI 浮窗走规则兜底，仍可用；撞到限流也会退到这一版并说明原因 |
 | `QINIU_ACCESS_KEY` / `QINIU_SECRET_KEY` / `QINIU_BUCKET` | 图片上传（仓库里没有桶名和域名的默认值，得自己配） | 上传接口返回 `511`，并列出缺哪几个变量 |
 | `MYSQL_PASSWORD` | 数据库口令 | 用本地开发默认值 |
 | `REDIS_PASSWORD` | Redis 口令 | 不发送 AUTH（本机 Redis 未设 requirepass） |

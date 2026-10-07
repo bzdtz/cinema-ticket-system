@@ -2,18 +2,17 @@ package com.saodi.controller;
 
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.saodi.po.Order;
 import com.saodi.service.IOrderService;
-import com.saodi.service.IShowtimesService;
+import com.saodi.service.OrderPlacementService;
 import com.saodi.util.CurrentUser;
+import com.saodi.vo.PlaceOrderRequest;
 import com.saodi.vo.ResponseObj;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
-import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Random;
@@ -33,43 +32,23 @@ public class OrderController {
 
     @Autowired
     IOrderService service;
+
     @Autowired
-    IShowtimesService showtimesService;
+    OrderPlacementService placement;
+
+    /**
+     * 下单。旧版收的是前端算好的整张座位矩阵 + 总价 + 随机订单号，服务端原样覆盖进 showtimes，
+     * 于是任何人都能把任意座位标成已售、整片清空，两个人同时选座就是后写覆盖前写。
+     * 现在只收「场次 + 座位清单 +（可选）确认凭证」，可售校验、矩阵翻转、价格、主键全在服务端定，
+     * 细节见 {@link OrderPlacementService}。
+     */
     @PostMapping("/add")
-    public ResponseObj add(@RequestBody Order order, HttpServletRequest request){
-
-        Integer currentUserId = CurrentUser.id(request);
-        if (currentUserId == null){
-            return ResponseObj.ERROR(501,"登录验证失败");
+    public ResponseObj add(@RequestBody PlaceOrderRequest request, HttpServletRequest servletRequest) {
+        Integer currentUserId = CurrentUser.id(servletRequest);
+        if (currentUserId == null) {
+            return ResponseObj.ERROR(501, "登录验证失败");
         }
-        // 订单归属由服务端决定，不接受客户端传入的 userId
-        order.setUserId(currentUserId);
-
-        Date currentTime = new Date();
-        // 使用SimpleDateFormat将日期时间格式化为 "yyyy-MM-dd HH:mm:ss" 形式
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        String formattedDateTime = dateFormat.format(currentTime);
-
-        Date formattedDateTimeObject = null;
-        try {
-            formattedDateTimeObject = dateFormat.parse(formattedDateTime);
-        } catch (ParseException e) {
-            e.printStackTrace();
-        }
-
-
-
-
-        order.setLastConfirmTime(formattedDateTimeObject);
-        System.out.println(order.getSeat());
-        boolean b = service.saveOrUpdate(order);
-        Integer orderId = order.getOrderId();
-        UpdateWrapper uw = new UpdateWrapper();
-        uw.set("seat",order.getSeat());
-        uw.eq("id",order.getShowtimesId());
-        boolean update = showtimesService.update(uw);
-        System.out.println(orderId);
-        return update?ResponseObj.SUCCESS(orderId):ResponseObj.ERROR();
+        return placement.place(currentUserId, request);
     }
 
     @ApiOperation("根据订单id进行修改订单状态")

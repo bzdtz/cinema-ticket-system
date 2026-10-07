@@ -47,14 +47,17 @@ public class ToolRegistry {
     /**
      * 执行工具并序列化成给模型的 tool 消息内容。工具报错不抛出去，
      * 而是把错误原样回给模型，让它自己换个参数重试。
+     *
+     * context 是服务端塞进来的（当前是谁在问），不经过模型，模型也改不了它。
      */
-    public String run(String name, Map<String, Object> args) {
+    public String run(String name, Map<String, Object> args, ToolContext context) {
         AgentTool tool = tools.get(name);
         if (tool == null) {
             return "{\"error\":\"没有这个工具：" + name + "\"}";
         }
         try {
-            return mapper.writeValueAsString(tool.execute(args == null ? new LinkedHashMap<>() : args));
+            return mapper.writeValueAsString(
+                    tool.execute(args == null ? new LinkedHashMap<>() : args, context));
         } catch (Exception e) {
             String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             return "{\"error\":\"" + name + " 执行失败：" + reason.replace('"', '\'') + "\"}";

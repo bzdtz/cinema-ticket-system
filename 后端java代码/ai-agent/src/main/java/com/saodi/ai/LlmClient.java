@@ -18,7 +18,8 @@ import java.util.Map;
 
 /**
  * <p>
- *  DeepSeek 客户端。走 OpenAI 兼容的 /chat/completions，所以 baseUrl 换成智谱、Kimi 也能用。
+ *  模型客户端。走 OpenAI 兼容的 /chat/completions，所以 baseUrl 换成哪家都能用，
+ *  唯一的硬要求是对方支持 tools / tool_calls —— 智能体的工具层全靠这个。
  *  只做一次性（非流式）请求：Java 8 里撸 SSE 不值当，前端用打字机效果补一下就行。
  * </p>
  *

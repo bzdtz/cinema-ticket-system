@@ -1,5 +1,7 @@
 package com.saodi.ai.tool;
 
+import com.saodi.ai.DraftTicket;
+import com.saodi.ai.DraftTokenStore;
 import com.saodi.po.Showtimes;
 import com.saodi.util.SeatMatrix;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -7,6 +9,8 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -15,8 +19,9 @@ import java.util.Set;
 
 /**
  * <p>
- *  工具：生成下单草稿。刻意不写库——智能体只把影院/影片/场次/座位选好并校验一遍，
- *  最后一步"确认下单"必须留在人手里（座位矩阵服务端没有二次校验，自动下单很容易锁错）。
+ *  工具：生成下单草稿。只签一张一次性凭证，不写库——智能体把影院/影片/场次/座位选好并校验一遍，
+ *  真正落库由用户点确认之后走下单接口完成。
+ *  凭证令牌不出现在喂回模型的 tool 结果里，所以「有人点了确认」这件事模型自己伪造不了。
  * </p>
  *
  * @author saodi
@@ -27,6 +32,9 @@ public class DraftOrderTool implements AgentTool {
     @Autowired
     private ShowtimeReader reader;
 
+    @Autowired
+    private DraftTokenStore tokens;
+
     @Override
     public String name() {
         return "draft_order";
@@ -36,7 +44,8 @@ public class DraftOrderTool implements AgentTool {
     public String description() {
         return "生成一份下单草稿：校验座位确实可选，算好总价，交给前端预填。这个工具不会真的下单，"
                 + "用户必须自己在页面上点确认。seats 是 [[行,列],...]，行列都从 0 开始。"
-                + "任何一个位子不可用时整单不生成，会返回具体原因。";
+                + "任何一个位子不可用时整单不生成，会返回具体原因。"
+                + "草稿十分钟有效，过期或座位被别人订走都要重新生成。";
     }
 
     @Override
@@ -52,6 +61,11 @@ public class DraftOrderTool implements AgentTool {
 
     @Override
     public Object execute(Map<String, Object> args) {
+        return execute(args, ToolContext.anonymous());
+    }
+
+    @Override
+    public Object execute(Map<String, Object> args, ToolContext context) {
         Integer showtimeId = Args.id(args, "showtimeId");
         Showtimes showtimes = reader.find(showtimeId);
         if (showtimes == null) {
@@ -68,6 +82,7 @@ public class DraftOrderTool implements AgentTool {
         }
 
         Set<String> seen = new LinkedHashSet<>();
+        List<List<Integer>> chosen = new ArrayList<>();
         List<Map<String, Object>> seats = new ArrayList<>();
         List<String> problems = new ArrayList<>();
 
@@ -99,6 +114,7 @@ public class DraftOrderTool implements AgentTool {
             seat.put("col", col);
             seat.put("label", describe(row, col));
             seats.add(seat);
+            chosen.add(Arrays.asList(row, col));
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -110,6 +126,7 @@ public class DraftOrderTool implements AgentTool {
         }
 
         BigDecimal unit = showtimes.getSale() == null ? BigDecimal.ZERO : showtimes.getSale();
+        BigDecimal total = unit.multiply(new BigDecimal(seats.size()));
         Map<String, Object> showtime = reader.describe(showtimes);
         result.put("ok", true);
         result.put("placed", false);
@@ -123,7 +140,25 @@ public class DraftOrderTool implements AgentTool {
         result.put("seats", seats);
         result.put("count", seats.size());
         result.put("unitPrice", unit);
-        result.put("total", unit.multiply(new BigDecimal(seats.size())));
+        result.put("total", total);
+        result.put("confirmExpiresInSeconds", tokens.ttlSeconds());
+
+        // 凭证按行优先钉死座位集合，确认后服务端拿它比对：中途换座、改场次、换人都对不上
+        chosen.sort(Comparator.comparingInt((List<Integer> cell) -> cell.get(0))
+                .thenComparingInt(cell -> cell.get(1)));
+        DraftTicket ticket = new DraftTicket();
+        ticket.setUserId(context.userId());
+        ticket.setShowtimeId(showtimes.getId());
+        ticket.setSeats(chosen);
+        ticket.setUnitPrice(unit);
+        ticket.setTotal(total);
+        String token = tokens.issue(ticket);
+        if (token != null) {
+            result.put("confirmToken", token);
+        } else {
+            // Redis 没通就退回手动选座，不因为凭证发不出来把下单入口堵掉
+            result.put("tokenWarning", "确认凭证没签发，这一单按手动选座走");
+        }
         return result;
     }
 

@@ -19,12 +19,17 @@ public class AiProperties {
     /** 留空则整个智能体退化成规则兜底，功能照常可用 */
     private String apiKey = "";
 
-    private String baseUrl = "https://api.deepseek.com";
+    /** OpenAI 兼容端点的基址，客户端在后面拼 /chat/completions */
+    private String baseUrl = "https://chat.intern-ai.org.cn/api/v1";
 
-    private String model = "deepseek-chat";
+    /** 前端引擎标签显示的就是这个值，所以改配置等于换模型，不用动代码 */
+    private String model = "intern-s2-preview";
 
     /** 一次提问最多允许模型来回调用几轮工具 */
     private int maxToolRounds = 5;
+
+    /** 草稿确认凭证的有效期：过了就得重新要一份，免得座位状态早变了还按老草稿成交 */
+    private int draftTtlSeconds = 600;
 
     private int timeoutMs = 30000;
 

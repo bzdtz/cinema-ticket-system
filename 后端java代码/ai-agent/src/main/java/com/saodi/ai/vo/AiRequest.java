@@ -17,6 +17,12 @@ public class AiRequest {
 
     private String message;
 
+    /**
+     * 由 controller 从登录态写入，客户端传来的这个字段一律被覆盖。
+     * 草稿凭证要钉住"是谁的草稿"，靠模型自己传用户 id 是不成立的。
+     */
+    private Integer userId;
+
     /** 前端带的历史，形如 [{role:'user'|'assistant', content:'...'}]，只取最近若干条 */
     private List<Map<String, String>> history;
 
