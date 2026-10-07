@@ -3,7 +3,7 @@
         <div v-if="open" class="ai-panel">
             <div class="ai-head">
                 <span class="ai-title">选座助手</span>
-                <span v-if="lastEngine" class="ai-engine" :class="lastEngine">{{ lastEngine === 'deepseek' ? '模型' : '规则兜底' }}</span>
+                <span v-if="lastEngine" class="ai-engine" :class="lastEngine === 'rule' ? 'rule' : 'model'">{{ lastEngine === 'rule' ? '规则兜底' : lastEngine }}</span>
                 <button class="ai-close" @click="open = false">×</button>
             </div>
 
@@ -214,7 +214,8 @@ export default {
     color: #888;
 }
 
-.ai-engine.deepseek {
+/* engine 是模型名时（如 deepseek-v4-flash）都算"模型答的"，只有 rule 才是兜底 */
+.ai-engine.model {
     background: #e8f2ff;
     color: #2b6cb0;
 }

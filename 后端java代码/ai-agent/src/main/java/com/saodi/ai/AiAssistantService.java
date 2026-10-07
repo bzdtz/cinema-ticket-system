@@ -59,7 +59,9 @@ public class AiAssistantService {
         messages.add(message("user", request.getMessage() == null ? "" : request.getMessage()));
 
         AiReply reply = new AiReply();
-        reply.setEngine("deepseek");
+        // engine 报"是哪个模型答的"，不是写死的厂商名。兜底路径那边报 "rule"，
+        // 前端靠这个值区分「模型」和「规则兜底」，所以这里必须给真模型名。
+        reply.setEngine(props.getModel());
 
         for (int round = 0; round < props.getMaxToolRounds(); round++) {
             LlmClient.ChatMessage answer = client.chat(messages, registry.definitions());
