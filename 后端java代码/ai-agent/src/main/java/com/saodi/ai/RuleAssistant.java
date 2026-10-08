@@ -20,8 +20,10 @@ import java.util.regex.Pattern;
 
 /**
  * <p>
- *  没配 api-key 时的兜底：不接模型，直接按关键词判意图、调同一批工具、拼中文回答。
+ *  关键词兜底：不调模型，按关键词判意图、调同一批工具、拼中文回答。
  *  存在的意义是让这套功能在拿到 key 之前就能点通，而不是一个只会报"未配置"的空壳。
+ *  现在它还是另外两条降级路径的落点：模型方限流/超时，以及一轮里绕满了 max-tool-rounds ——
+ *  所以它不是装饰，而是同一批工具的第二个驱动端；两边共用一套座位合法性判断。
  * </p>
  *
  * @author saodi
@@ -49,13 +51,25 @@ public class RuleAssistant {
         AiReply reply = new AiReply();
         reply.setEngine("rule");
 
-        if (contains(text, "下单", "买", "订", "就这个", "确认")) {
-            draft(request, reply, count(message));
-            if (reply.getDraft() != null) {
+        // 「你直接帮我把钱付了」这种要求，规则引擎也得把边界说清楚：草稿可以有，提交那一下永远在用户手里。
+        // 这条判断放在下单关键词之前，否则「不用我确认」里的「确认」会先被当成下单意图。
+        if (contains(text, "帮我付", "直接付", "不用我确认", "不用确认", "替我确认", "自动支付", "替我提交")) {
+            reply.setAnswer("付款和提交订单这一步永远由你在页面上点，我最多把草稿填好；"
+                    + "要出草稿就在选座页上问我，或者直接告诉我场次 id。");
+            return reply;
+        }
+        // 「草稿」以前不在关键词里，「重新出一份草稿」会一路掉到最后的帮助文案。
+        if (contains(text, "下单", "买", "订", "就这个", "确认", "草稿")) {
+            if (draft(request, reply, count(message))) {
                 return reply;
             }
+            // 想下单但页面里没有场次，也没有别的可查：说清楚缺什么，别一路掉到能力清单。
+            reply.setAnswer("下单得先知道是哪一场：在某个场次的选座页上问我，或者直接告诉我场次 id。");
+            return reply;
         }
-        if (contains(text, "座", "位子", "连座", "空位", "靠中间", "几个人")) {
+        // 「我们6个人能坐一起吗」里既没有「座」也没有「几个人」，只有一个「坐」——
+        // 以前这条关键词一条都不命中，于是回了一段能力清单，用户问的是座位。
+        if (contains(text, "座", "坐", "位子", "连座", "连坐", "空位", "靠中间", "几个人", "坐一起", "挨着", "同一排")) {
             seats(request, reply, count(message));
             return reply;
         }
@@ -72,9 +86,11 @@ public class RuleAssistant {
             return reply;
         }
 
+        // 这句以前写的是「当前后端没配 ai.api-key」，而 key 是配好的：走到这条兜底是模型没应答或者绕满了工具轮次，
+        // 原因说错了会让下一个排查的人先去翻配置文件。为什么说这条回答是兜底、具体退的原因看后端日志和 engine 标签。
         reply.setAnswer("我现在能查：在映影片、有排片的影院、某场几点开始以及还剩多少座、"
                 + "帮你挑连座、把订单草稿填好（最后一步仍由你点确认）。"
-                + "当前后端没配 ai.api-key，走的是关键词兜底；配好 key 后就能自然对话。");
+                + "这一条是关键词兜底答的（engine=rule）：没配模型、模型没应答、或者一轮里绕满了工具次数都会走到这里，问得具体一点我照样能查。");
         return reply;
     }
 
@@ -96,11 +112,23 @@ public class RuleAssistant {
     }
 
     private void showtimes(AiRequest request, AiReply reply) {
-        Map<String, Object> result = asMap(findShowtimesTool.execute(contextArgs(request)));
+        Map<String, Object> args = contextArgs(request);
+        // 在选座页上问「这场几点开始」，用户指的是页面里那一场。以前这里只带 cinemaId/movieId，
+        // 于是回「查到 21 场」加一句「人最少的是」——答非所问，还顺手对没查过的场次下了结论。
+        Integer showtimeId = contextId(request, "showtimeId");
+        if (showtimeId != null) {
+            args.put("showtimeId", showtimeId);
+        }
+        Map<String, Object> result = asMap(findShowtimesTool.execute(args));
         reply.getSteps().add("find_showtimes");
         List<Map<String, Object>> rows = rows(result);
         if (rows.isEmpty()) {
-            reply.setAnswer("按现在的条件没查到场次。先告诉我影院和片名，或者在影院页上问我。");
+            reply.setAnswer(str(result.get("notice"))
+                    + "按现在的条件没查到场次。先告诉我影院和片名，或者在影院页上问我。");
+            return;
+        }
+        if (showtimeId != null) {
+            reply.setAnswer("这一场：" + line(rows.get(0)) + "。");
             return;
         }
         Map<String, Object> quietest = quietest(rows);
@@ -110,6 +138,9 @@ public class RuleAssistant {
         }
         answer.append("人最少的是 ").append(line(quietest))
                 .append("，场次 id ").append(orDash(quietest.get("id"))).append("。");
+        if (Boolean.TRUE.equals(result.get("truncated"))) {
+            answer.append("（清单被截断过，没出现在上面不等于库里没有。）");
+        }
         reply.setAnswer(answer.toString());
     }
 
@@ -137,17 +168,21 @@ public class RuleAssistant {
         reply.setAnswer(answer.toString());
     }
 
-    private void draft(AiRequest request, AiReply reply, int wanted) {
+    /**
+     * @return 这一轮是否已经给出了结论。生成草稿、明确说了为什么没生成，都算给了；
+     * 只有「页面里根本没有场次」返回 false，让上层继续按其它关键词判意图。
+     */
+    private boolean draft(AiRequest request, AiReply reply, int wanted) {
         Integer showtimeId = contextId(request, "showtimeId");
         if (showtimeId == null) {
-            return;
+            return false;
         }
         Map<String, Object> summary = asMap(seatSummaryTool.execute(pair("showtimeId", showtimeId,
                 "wantedSeats", wanted)));
         Map<String, Object> suggestion = asMap(summary.get("suggestion"));
         if (!Boolean.TRUE.equals(suggestion.get("found"))) {
             reply.setAnswer("这一场凑不齐 " + wanted + " 个连座，先换一场？");
-            return;
+            return true;
         }
         Map<String, Object> args = new LinkedHashMap<>();
         args.put("showtimeId", showtimeId);
@@ -158,13 +193,14 @@ public class RuleAssistant {
 
         if (!Boolean.TRUE.equals(result.get("ok"))) {
             reply.setAnswer("草稿没生成：" + result.get("problems"));
-            return;
+            return true;
         }
         reply.setDraft(result);
         reply.setAnswer("已经选好 " + orDash(result.get("count")) + " 个位子：" + seatLabels(result)
                 + "，" + trim(str(result.get("movie"))) + " " + result.get("date") + " " + result.get("time")
                 + "，" + trim(str(result.get("cinema"))) + " " + orDash(result.get("hall"))
                 + "，合计 " + orDash(result.get("total")) + " 元。点下面的「就按这个下单」过去确认，我不会替你提交。");
+        return true;
     }
 
     private static String seatLabels(Map<String, Object> draft) {

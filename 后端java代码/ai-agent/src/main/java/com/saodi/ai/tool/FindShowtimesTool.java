@@ -53,9 +53,10 @@ public class FindShowtimesTool implements AgentTool {
         Map<String, Object> result = new LinkedHashMap<>();
         List<Map<String, Object>> rows = new ArrayList<>();
 
-        // 单场精确查。走 ShowtimeReader.find()：service 的 getById 是 INNER JOIN cinema/hall，
-        // 那几条挂在已删影院上的场次（22/24/25/27）JOIN 不出来，但它自己的数据是全的，
-        // 退成按主键直查就能答「场次27是《大雨》」，而不是照着一份截断的清单说「不存在」。
+        // 单场精确查。走 ShowtimeReader.find()：service 的 getById 是 INNER JOIN cinema/hall/movie，
+        // 任何一边的行缺失都会查不出来（2026-10-07 把孤儿场次 22/24/25/27 归位之前，这四条就是这样），
+        // 而场次自己的数据是全的，退成按主键直查就能答「场次27是《大雨》」，
+        // 而不是照着一份被 limit 截断的清单说「不存在」——截断才是现在这条路径天天用得上的理由。
         Integer showtimeId = Args.id(args, "showtimeId");
         if (showtimeId != null) {
             Showtimes one = reader.find(showtimeId);
