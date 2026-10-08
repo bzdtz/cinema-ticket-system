@@ -52,17 +52,20 @@
         // B 查影院
         {id: 'B1', cat: '查影院', q: '有哪些影院', need: ['list_cinemas'], must: ['万达']},
         {id: 'B2', cat: '查影院', q: '新乡万达在哪个城市', need: ['list_cinemas'], must: ['新乡']},
-        {id: 'B3', cat: '查影院', q: '哪家影院排片最多', any: ['list_cinemas', 'find_showtimes'], must: ['万达|13']},
+        {id: 'B3', cat: '查影院', q: '哪家影院排片最多', any: ['list_cinemas', 'find_showtimes'], must: ['万达|16']},
         {id: 'B4', cat: '查影院', q: '有IMAX的影院今晚有场吗', need: ['find_showtimes'], forbid: ['draft_order'], must: ['没有|暂无|查不到|没找到|没排|2024']},
         // C 查场次
         {id: 'C1', cat: '查场次', q: '海王2有哪些场次', need: ['find_showtimes'], any: ['list_movies', 'find_showtimes'], must: ['场次|排片|id']},
         {id: 'C2', cat: '查场次', q: '照明商店 2024-01-03 的场次', need: ['find_showtimes'], any: ['list_movies', 'find_showtimes'], must: ['2024-01-03|01-03|00:00']},
-        {id: 'C3', cat: '查场次', q: '新乡万达影城一共有几场排片', any: ['find_showtimes', 'list_cinemas'], must: ['13']},
+        // 2026-10-07 孤儿排片 22/24/27 归位到新乡万达（见 sql/orphan-showtimes-reassign-2026-10-07.sql），
+        // 这家的场次数从 13 变成 16。口径跟着数据走，不写回 13：13 现在是假答案。
+        {id: 'C3', cat: '查场次', q: '新乡万达影城一共有几场排片', any: ['find_showtimes', 'list_cinemas'], must: ['16']},
         // seat_summary 返回的行里同样带 date/time，用它答 14:00 不算绕路，所以两条路都认
         {id: 'C4', cat: '查场次', q: '场次21是几点', any: ['find_showtimes', 'seat_summary'], must: ['14:00']},
         {id: 'C5', cat: '查场次', q: '最便宜的场次多少钱', need: ['find_showtimes'], must: ['12']},
-        // 场次 27 挂在已删影院/影厅上（孤儿数据），app 的 getById 是 INNER JOIN 所以查不出来，
-        // 但智能体走的是 ShowtimeReader.find()：JOIN 不出来就按主键直查，片名照样能取到。
+        // 场次 27 的归属已在 2026-10-07 归位（新乡万达二号厅），这条用例现在考的是「截断」而不是「孤儿数据」：
+        // showtimes 有 21 行，find_showtimes 默认 limit 20 按日期升序，2024-01-17 那一场永远被切在最后一条之外，
+        // 模型只能靠 showtimeId 精确查（走 ShowtimeReader.find()，JOIN 取不到会降级按主键查）才能答到《大雨》。
         // 上一版口径按「老实说取不到」判，把正确答案《大雨》判成了不过——库里 movie_id=51 就是大雨。
         {id: 'C6', cat: '查场次', q: '场次27是什么电影', any: ['find_showtimes', 'seat_summary'], must: ['大雨'], mustNot: ['怒潮|海王|照明|三大队|死侍']},
         // D 座位摘要
@@ -72,8 +75,9 @@
         {id: 'D4', cat: '座位', q: '这场空位多吗', ctx: {showtimeId: 10}, need: ['seat_summary'], must: ['不多|很少|只剩|紧张|没几个|2 ?个|两个']},
         // 「人最少」有两种读法：空位最多（119，场次 12/19/21）还是已售最少（0，场次 32）。
         // 两种都算答对，但报出来的数得是真的；反问用户要看哪部、或者拿没查过的场次下结论都判不过。
+        // 第八轮补：它写的是「已售0张」不是「已售0座」，量词不该成为判不过的理由。
         {id: 'D5', cat: '座位', q: '哪个场次人最少', any: ['find_showtimes', 'seat_summary'],
-            must: ['已售 ?0 ?座|空[座位]? ?(100|119)'], mustNot: ['告诉.{0,10}(片名|电影)', '其他场次均']},
+            must: ['已售 ?0 ?[座张]|空[座位]? ?(100|119)'], mustNot: ['告诉.{0,10}(片名|电影)', '其他场次均']},
         {id: 'D6', cat: '座位', q: '7排5座还空着吗', ctx: {showtimeId: 12}, need: ['seat_summary'], seatsExist: true},
         // E 草稿
         {id: 'E1', cat: '草稿', q: '挑两个连座，直接出草稿', ctx: {showtimeId: 21}, need: ['seat_summary', 'draft_order'], draft: true, seatsFree: true, limit: 200},
