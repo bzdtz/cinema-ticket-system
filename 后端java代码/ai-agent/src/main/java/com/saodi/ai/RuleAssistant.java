@@ -2,6 +2,7 @@ package com.saodi.ai;
 
 import com.saodi.ai.tool.DraftOrderTool;
 import com.saodi.ai.tool.FindShowtimesTool;
+import com.saodi.ai.tool.HotNowTool;
 import com.saodi.ai.tool.ListCinemasTool;
 import com.saodi.ai.tool.ListMoviesTool;
 import com.saodi.ai.tool.SeatSummaryTool;
@@ -41,6 +42,8 @@ public class RuleAssistant {
     private SeatSummaryTool seatSummaryTool;
     @Autowired
     private DraftOrderTool draftOrderTool;
+    @Autowired
+    private HotNowTool hotNowTool;
 
     private static final Pattern COUNT = Pattern.compile("([0-9]+|一|二|两|三|四|五|六)\\s*[个张位人]");
 
@@ -81,6 +84,12 @@ public class RuleAssistant {
             cinemas(reply);
             return reply;
         }
+        // 「最近什么片最热」问的是现在，而站内 movie 的想看数停在 2024 年：拿它答就是一份两年前的榜单。
+        // 这条得放在影院之后、片之前——再往后会被「片」那个分支抢走，答成站内在映列表。
+        if (contains(text, "最近", "热门", "热度", "排行", "榜", "新片", "人气", "在映", "最火")) {
+            hot(reply);
+            return reply;
+        }
         if (contains(text, "片", "电影", "演什么", "上映", "好看", "推荐")) {
             movies(reply);
             return reply;
@@ -88,8 +97,8 @@ public class RuleAssistant {
 
         // 这句以前写的是「当前后端没配 ai.api-key」，而 key 是配好的：走到这条兜底是模型没应答或者绕满了工具轮次，
         // 原因说错了会让下一个排查的人先去翻配置文件。为什么说这条回答是兜底、具体退的原因看后端日志和 engine 标签。
-        reply.setAnswer("我现在能查：在映影片、有排片的影院、某场几点开始以及还剩多少座、"
-                + "帮你挑连座、把订单草稿填好（最后一步仍由你点确认）。"
+        reply.setAnswer("我现在能查：外部热度榜（最近什么在映、谁最热）、站内在映影片、有排片的影院、"
+                + "某场几点开始以及还剩多少座、帮你挑连座、把订单草稿填好（最后一步仍由你点确认）。"
                 + "这一条是关键词兜底答的（engine=rule）：没配模型、模型没应答、或者一轮里绕满了工具次数都会走到这里，问得具体一点我照样能查。");
         return reply;
     }
@@ -109,6 +118,43 @@ public class RuleAssistant {
         reply.setAnswer("只有排过片的影院才点得进去：" + join(rows(result), row -> trim(str(row.get("name")))
                 + "（" + orDash(row.get("screenings")) + " 场）")
                 + "。库里其余 " + orDash(result.get("withoutShowtimesSkipped")) + " 家一场都没有，别选。");
+    }
+
+    /**
+     * 热度榜走的是同一个 hot_now bean：模型不在的时候，兜底答的也是那份外部快照，
+     * 不会一条路径报外部榜、另一条路径报站内 2024 年的想看数。
+     */
+    private void hot(AiReply reply) {
+        Map<String, Object> args = new LinkedHashMap<>();
+        args.put("limit", 10);
+        Map<String, Object> result = asMap(hotNowTool.execute(args));
+        reply.getSteps().add("hot_now");
+
+        if (!Boolean.TRUE.equals(result.get("available"))) {
+            reply.setAnswer("外部热度榜这次没通：" + trim(str(result.get("notice")))
+                    + " 站内的想看数是 2024 年存的一版，我不拿它冒充现在的热度。"
+                    + "要现在能选座的场次，告诉我影院或片名就行。");
+            return;
+        }
+
+        StringBuilder answer = new StringBuilder("外部热度榜（" + orDash(result.get("source"))
+                + "，" + orDash(result.get("fetchedAt")) + " 抓的）：\n");
+        for (Map<String, Object> row : rows(result)) {
+            answer.append("· ").append(row.get("rank")).append(". ").append(trim(str(row.get("title"))))
+                    .append("（评分 ").append(orDash(row.get("rate"))).append("，")
+                    .append(onSite(row)).append("）\n");
+        }
+        answer.append("榜是外部源的名次，能不能在本站买票看后面那句。");
+        reply.setAnswer(answer.toString());
+    }
+
+    private static String onSite(Map<String, Object> row) {
+        Object movieId = row.get("libraryMovieId");
+        int count = (int) num(row.get("showtimeCount"));
+        if (movieId == null) {
+            return "站内没这部";
+        }
+        return count > 0 ? "站内有 " + count + " 场，影片 id " + movieId : "站内有这部但一场没排";
     }
 
     private void showtimes(AiRequest request, AiReply reply) {

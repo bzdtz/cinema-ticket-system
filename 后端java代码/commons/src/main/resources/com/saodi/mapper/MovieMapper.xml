@@ -6,12 +6,23 @@
         <association property="tag" javaType="Tag" autoMapping="true"/>
     </resultMap>
 
+    <!--
+      正在热映。原来是「release_time 已过 + 票房倒序」，两个毛病：
+      1) 票房是 2023 年那次入库填的演示数，拿它排「热映」排出来的就那几张老脸；
+      2) 2026-10-10 从外部热度榜补进来的片子没有上映日期（榜单不给），
+         NULL 参加任何比较都是 unknown，于是它们既进不了正在热映也进不了即将上映，首页上看不见。
+      所以现在按「本站未来真排着的场次」优先，没排片的再退回票房；
+      release_time 为空的只要有一场往后的排片就算在映 —— 卖得到票的就是在映。
+      即将上映那条不动（release_time > now），两边不会重。
+    -->
     <select id="getByWantAndBoxOffice" resultMap="map1">
           SELECT m.*, t.tag
           FROM movie m
           LEFT JOIN tag_movie t ON m.id = t.movieId
-          WHERE CURRENT_TIMESTAMP > m.release_time
-          ORDER BY box_office DESC
+          WHERE m.release_time &lt;= CURRENT_TIMESTAMP
+             OR EXISTS (SELECT 1 FROM showtimes s WHERE s.movie_id = m.id AND s.showdate &gt;= CURDATE())
+          ORDER BY (SELECT COUNT(*) FROM showtimes s WHERE s.movie_id = m.id AND s.showdate &gt;= CURDATE()) DESC,
+                   box_office DESC
           LIMIT #{size}
 </select>
 

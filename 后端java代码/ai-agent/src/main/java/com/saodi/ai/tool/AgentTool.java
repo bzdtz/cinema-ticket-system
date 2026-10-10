@@ -23,7 +23,7 @@ public interface AgentTool {
 
     /**
      * 需要知道"以谁的身份执行"的工具覆写这个。
-     * 默认忽略上下文，所以五个只读查询工具一行都不用改。
+     * 默认忽略上下文，所以那几个只读查询工具一行都不用改。
      */
     default Object execute(Map<String, Object> args, ToolContext context) {
         return execute(args);

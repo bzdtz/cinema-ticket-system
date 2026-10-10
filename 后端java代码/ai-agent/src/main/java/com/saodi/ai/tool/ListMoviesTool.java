@@ -34,7 +34,9 @@ public class ListMoviesTool implements AgentTool {
     @Override
     public String description() {
         return "查库里的影片。keyword 传片名片段可以模糊找；不传就按想看人数给最近的片子。"
-                + "返回 id、片名、评分、时长、地区、上映日期、想看人数。要选场次前先拿这里的 id。";
+                + "返回 id、片名、评分、时长、地区、上映日期、想看人数。要选场次前先拿这里的 id。"
+                + "但 wantNumber 和 score 是 2024 年入库时存的一版，只能当站内档案，"
+                + "不能当成现在的热度——问最近谁最热用 hot_now。";
     }
 
     @Override

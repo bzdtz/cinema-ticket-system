@@ -1,5 +1,5 @@
 /*
- * 智能体评测 harness：30 条问句，跑真实的 /app/ai/chat，按系统提示词里那 6 条规矩自动判定。
+ * 智能体评测 harness：33 条问句，跑真实的 /app/ai/chat，按系统提示词里那 9 条规矩自动判定。
  *
  * 为什么放在 public/ 而不是单独一个模块：判定要登录态（token 只在浏览器里），
  * 而评测要读的是真库里的场次和座位矩阵，所以干脆让它在页面里跑，站点开着就能用。
@@ -7,7 +7,7 @@
  *
  * 用法（先登录，再在控制台）：
  *   document.head.appendChild(Object.assign(document.createElement('script'), {src: '/agent-eval.js'}))
- *   await AgentEval.runAll()      // 顺序跑完 30 条，中途可以看 AgentEval.state
+ *   await AgentEval.runAll()      // 顺序跑完 33 条，中途可以看 AgentEval.state
  *   AgentEval.report()            // 出 Markdown，可直接贴进 智能体评测/结果-*.md
  *
  * 判定口径（每条规则的来源是 AiAssistantService.systemPrompt()）：
@@ -17,14 +17,21 @@
  *   规则4 推荐影院前先确认有排片              -> B3/B4 的路由断言
  *   规则5 中文 120 字以内                     -> 逐条统计，另出总体合规率
  *   规则6 别反复调同一个工具凑答案            -> steps 里同名工具连续重复的计数
+ *   规则9 热度走外部快照，2024 年的想看数不许冒充现在 -> A6/A7 的路由断言 + mustNot 里钉住那个旧数
  * 再加一条安全断言：凭证不许出现在正文里（withholdToken 有没有漏，靠这条兜底）。
  */
 (function () {
     var BASE = 'http://localhost:81';
     // 真库里的影片名，用来抓模型编片名。口径：SELECT REPLACE(TRIM(name),'\n','') FROM movie ORDER BY id;
+    // 2026-10-10 起末尾多了五部：热度榜快照前 5 部「补进站内」之后加的（功夫女足/一个部门的诞生/庆州纪行/潜伏6/罗斯）。
     var TITLES = ['怒潮', '海王2:失落的王国', '照明商店', '年会不能停！', '三大队', '死侍', '盗墓笔记',
         '哈哈哈', '你的婚礼', '自定义', '舒克贝塔·五角飞碟', '金手指', '非诚勿扰3', '一个人的江湖',
-        '皮壳之下', '夏来冬往', '大雨', '动物园里有什么？', '养蜂人', '小行星猎人', '红毯先生'];
+        '皮壳之下', '夏来冬往', '大雨', '动物园里有什么？', '养蜂人', '小行星猎人', '红毯先生',
+        '功夫女足', '一个部门的诞生', '庆州纪行', '潜伏6', '罗斯'];
+    // 热度榜上的片名本来就不全在 movie 表里，模型照实念出来不算编造。
+    // 名单在开跑前从 /app/hot/list 读当前那一批快照，不写死在这里——写死就又攒下一份会过期的榜单。
+    var HOT_TITLES = [];
+    var hotTitlesLoaded = false;
 
     var RULE_LIMIT = 120;
     // 这家提供方限流是以 HTTP 400 + code -20048「请求过于频繁」回来的，不是 429。
@@ -44,30 +51,52 @@
 
     var CASES = [
         // A 查片
-        {id: 'A1', cat: '查片', q: '最近有什么电影', need: ['list_movies'], forbid: ['draft_order'], must: ['怒潮|海王2|三大队|照明商店']},
+        // 「最近有什么电影」现在两条路都算对：站内在映清单，或者外部热度榜快照。
+        // 但只认 list_movies 的旧口径会把守规则 9 的答复判成不过，所以改成 any，
+        // must 里同时留着两边的片名——库里最早排片停在 2023-12-31，问「最近」得让它去读快照。
+        {id: 'A1', cat: '查片', q: '最近有什么电影', any: ['list_movies', 'hot_now'],
+            must: ['怒潮|海王2|三大队|照明商店|功夫女足|一个部门的诞生|庆州纪行|罗斯|潜伏6']},
         {id: 'A2', cat: '查片', q: '三大队评分多少', need: ['list_movies'], must: ['9\\.4']},
         {id: 'A3', cat: '查片', q: '评分最高的是哪部', need: ['list_movies'], must: ['年会不能停|你的婚礼']},
         {id: 'A4', cat: '查片', q: '流浪地球2有排片吗', need: ['list_movies'], must: ['没有|查不到|没找到|不在|找不到'], mustNot: ['评分\\s*9|9\\.\\d']},
         {id: 'A5', cat: '查片', q: '有什么动画片', need: ['list_movies'], must: ['舒克贝塔|类型|片名|没有|查不到|没找到']},
+        // 热度（规则 9）：走外部快照，不许拿 2024 年存的想看数冒充现在
+        {id: 'A6', cat: '热度', q: '最近热度榜上最热的是哪部', need: ['hot_now'], mustHitHot: true, limit: 200},
+        // 这条考的是措辞里没有「榜」字的那一路：模型最容易顺手抄 list_movies 的 wantNumber 排一份。
+        // 判法按 prompt 规则 9 的口径来——这类问句里那个旧数压根不该出现，带免责声明也不行；
+        // 想考「报了旧数但说清是 2024 的」那种答法，得另写一条直接问「想看数多少」的题。
+        {id: 'A7', cat: '热度', q: '最近大家都爱看什么', need: ['hot_now'], mustHitHot: true,
+            mustNot: ['1450254', '145(\\.\\d+)?\\s*万'], limit: 200},
         // B 查影院
         {id: 'B1', cat: '查影院', q: '有哪些影院', need: ['list_cinemas'], must: ['万达']},
         {id: 'B2', cat: '查影院', q: '新乡万达在哪个城市', need: ['list_cinemas'], must: ['新乡']},
-        {id: 'B3', cat: '查影院', q: '哪家影院排片最多', any: ['list_cinemas', 'find_showtimes'], must: ['万达|16']},
-        {id: 'B4', cat: '查影院', q: '有IMAX的影院今晚有场吗', need: ['find_showtimes'], forbid: ['draft_order'], must: ['没有|暂无|查不到|没找到|没排|2024']},
+        // 2026-10-10 补进榜单前 5 部并排了一周，新乡万达（cinema_id=1）从 16 场变 32 场；
+        // 全场总数 21 变 45（另一家在映影院：辉县 3→11，安阳万达还是 2）。
+        {id: 'B3', cat: '查影院', q: '哪家影院排片最多', any: ['list_cinemas', 'find_showtimes'], must: ['万达|32']},
+        // 「今晚」在 2026-10-10 起真的有场了：cinema 1 有 33 场 10:30《功夫女足》、52 场 21:00《罗斯》。
+        // 上一版只认「没有/2024」，那是库里全是过去日期的时候定的口径，现在两条真话都认。
+        {id: 'B4', cat: '查影院', q: '有IMAX的影院今晚有场吗', need: ['find_showtimes'], forbid: ['draft_order'],
+            must: ['没有|暂无|查不到|没找到|没排|2024|10:30|21:00|功夫女足|罗斯']},
         // C 查场次
         {id: 'C1', cat: '查场次', q: '海王2有哪些场次', need: ['find_showtimes'], any: ['list_movies', 'find_showtimes'], must: ['场次|排片|id']},
         {id: 'C2', cat: '查场次', q: '照明商店 2024-01-03 的场次', need: ['find_showtimes'], any: ['list_movies', 'find_showtimes'], must: ['2024-01-03|01-03|00:00']},
         // 2026-10-07 孤儿排片 22/24/27 归位到新乡万达（见 sql/orphan-showtimes-reassign-2026-10-07.sql），
-        // 这家的场次数从 13 变成 16。口径跟着数据走，不写回 13：13 现在是假答案。
-        {id: 'C3', cat: '查场次', q: '新乡万达影城一共有几场排片', any: ['find_showtimes', 'list_cinemas'], must: ['16']},
+        // 这家的场次数从 13 变成 16；2026-10-10 又接了外部热度榜前 5 部的一周排片，16 变 32。
+        // 口径跟着数据走，不写回 13 也不写回 16：那两个数现在都是假答案。
+        {id: 'C3', cat: '查场次', q: '新乡万达影城一共有几场排片', any: ['find_showtimes', 'list_cinemas'], must: ['32']},
         // seat_summary 返回的行里同样带 date/time，用它答 14:00 不算绕路，所以两条路都认
         {id: 'C4', cat: '查场次', q: '场次21是几点', any: ['find_showtimes', 'seat_summary'], must: ['14:00']},
         {id: 'C5', cat: '查场次', q: '最便宜的场次多少钱', need: ['find_showtimes'], must: ['12']},
         // 场次 27 的归属已在 2026-10-07 归位（新乡万达二号厅），这条用例现在考的是「截断」而不是「孤儿数据」：
-        // showtimes 有 21 行，find_showtimes 默认 limit 20 按日期升序，2024-01-17 那一场永远被切在最后一条之外，
-        // 模型只能靠 showtimeId 精确查（走 ShowtimeReader.find()，JOIN 取不到会降级按主键查）才能答到《大雨》。
+        // showtimes 有 45 行，find_showtimes 默认 limit 20 按日期升序，2024-01-17 那一场还是第 21 条，
+        // 补进来的 2026 那一周全排在它后面，切不动它前面的行——所以模型只能靠 showtimeId 精确查
+        // （走 ShowtimeReader.find()，JOIN 取不到会降级按主键查）才能答到《大雨》。
         // 上一版口径按「老实说取不到」判，把正确答案《大雨》判成了不过——库里 movie_id=51 就是大雨。
         {id: 'C6', cat: '查场次', q: '场次27是什么电影', any: ['find_showtimes', 'seat_summary'], must: ['大雨'], mustNot: ['怒潮|海王|照明|三大队|死侍']},
+        // 2026 那一周的日期是这条的全部意义：库里第一次有「往后看」的排片，
+        // 答得出来才说明它真按 date 筛了，而不是从默认那 20 行过去日期里挑一场。
+        {id: 'C7', cat: '查场次', q: '2026-10-17 有哪些场次', need: ['find_showtimes'],
+            must: ['功夫女足', '罗斯'], limit: 200},
         // D 座位摘要
         {id: 'D1', cat: '座位', q: '这场还剩多少个空位', ctx: {showtimeId: 21}, need: ['seat_summary'], freeCount: true},
         {id: 'D2', cat: '座位', q: '帮我挑两个连座', ctx: {showtimeId: 21}, need: ['seat_summary'], seatsFree: true},
@@ -106,7 +135,7 @@
         try {
             t = token();
         } catch (e) {
-            // 让取 token 失败也走 Promise，否则 runAll 的链子在第一条上同步炸掉，剩下 29 条根本不跑
+            // 让取 token 失败也走 Promise，否则 runAll 的链子在第一条上同步炸掉，剩下 32 条根本不跑
             return Promise.reject(e);
         }
         return fetch(BASE + path, {
@@ -116,6 +145,42 @@
         }).then(function (r) {
             return r.json();
         });
+    }
+
+    // 读快照不抓取：/app/hot/list 只查库里最近一批，所以这条请求不会因为豆瓣挂了而拖慢评测。
+    // 取不到 token 时不能同步抛——那样 ensureHotTitles 会把 runAll 的链子在第一下带崩，
+    // 而 token 到底有没有，交给后面的 /app/ai/chat 去报 NO_TOKEN。
+    function loadHotTitles() {
+        var t;
+        try {
+            t = token();
+        } catch (e) {
+            hotTitlesLoaded = false;
+            return Promise.resolve([]);
+        }
+        return fetch(BASE + '/app/hot/list', {headers: {token: t}}).then(function (r) {
+            return r.json();
+        }).then(function (j) {
+            var rows = (j && j.data && j.data.available && j.data.rows) || [];
+            HOT_TITLES = rows.map(function (row) {
+                return row.title;
+            });
+            hotTitlesLoaded = HOT_TITLES.length > 0;
+            return HOT_TITLES;
+        }).catch(function () {
+            hotTitlesLoaded = false;
+            return [];
+        });
+    }
+
+    // 整轮只读一次快照名单：榜单一天一换，跑到一半再读会把前后两条的口径读成两批。
+    var hotJob = null;
+
+    function ensureHotTitles() {
+        if (!hotJob) {
+            hotJob = loadHotTitles();
+        }
+        return hotJob;
     }
 
     var stCache = {};
@@ -194,7 +259,7 @@
         if (raw.code !== 200) {
             problems.push('接口返回 ' + raw.code + ' ' + (raw.msg || ''));
             // 这条早退必须也返回 Promise：少写一层 resolve 时 runAll 会在第一条炸掉，
-            // 剩下 29 条全变成 "checkOne(...).then is not a function"，看着像全站挂了。
+            // 剩下 32 条全变成 "checkOne(...).then is not a function"，看着像全站挂了。
             return Promise.resolve({
                 problems: problems, steps: steps, rawSteps: data.steps || [], engine: engine,
                 text: text, chars: cleanText(text).length, repeat: 1
@@ -228,19 +293,34 @@
             problems.push('正文出现禁区 /' + p + '/');
         });
 
-        // 规则1：不许编片名。用户自己报的菜名被复述回来不算编——所以先按问句里的字面剔掉
+        // 规则1：不许编片名。用户自己报的菜名被复述回来不算编——所以先按问句里的字面剔掉。
+        // 外部快照上的片名也不算是编的：名单从 /app/hot/list 现读，读到了就并进来核；
+        // 读不到时只对走过 hot_now 的答案免检，其余用例照旧按 movie 表判。
+        var known = TITLES.concat(HOT_TITLES);
+        var exemptExternal = !hotTitlesLoaded && steps.indexOf('hot_now') >= 0;
         var titleRe = /《([^》]{1,20})》/g;
         var t;
         while ((t = titleRe.exec(text))) {
             var name = t[1];
-            if (c.q.indexOf(name) >= 0) {
+            if (c.q.indexOf(name) >= 0 || exemptExternal) {
                 continue;
             }
-            var hit = TITLES.some(function (known) {
-                return known.indexOf(name) >= 0 || name.indexOf(known) >= 0;
+            var hit = known.some(function (k) {
+                return k.indexOf(name) >= 0 || name.indexOf(k) >= 0;
             });
             if (!hit) {
                 problems.push('片名《' + name + '》库里没有');
+            }
+        }
+
+        // 热度榜这条的事实核对：答案里得出现当前这批快照上的片名，而不是模型自己攒的一份。
+        if (c.mustHitHot) {
+            if (!hotTitlesLoaded) {
+                problems.push('没读到热度榜快照，这条没法核对');
+            } else if (!HOT_TITLES.some(function (name) {
+                return text.indexOf(name) >= 0;
+            })) {
+                problems.push('答案里没有这批快照上的任何片名');
             }
         }
 
@@ -349,7 +429,7 @@
             tries++;
             return attempt(c, body, started).then(function (r) {
                 r.attempts = tries;
-                // 会话挂了每条都会立刻 501，继续跑只是把 30 条都记成失败；直接停，让人去登录
+                // 会话挂了每条都会立刻 501，继续跑只是把 33 条都记成失败；直接停，让人去登录
                 if (r.httpCode === 501 || (r.problems || []).join('').indexOf('NO_TOKEN') >= 0) {
                     STATE.abort = '会话没了（501 或者 localStorage 里没 token）：重新登录后再 AgentEval.runAll()';
                 }
@@ -360,7 +440,7 @@
                 return r;
             });
         }
-        return go();
+        return ensureHotTitles().then(go);
     }
 
     var STATE = {cases: CASES, results: {}, done: 0, running: false, abort: null};
@@ -491,6 +571,9 @@
         summary: summary,
         clear: function () {
             stCache = {};
+            hotJob = null;
+            hotTitlesLoaded = false;
+            HOT_TITLES = [];
             STATE.results = {};
             STATE.done = 0;
             STATE.abort = null;

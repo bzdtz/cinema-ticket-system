@@ -133,7 +133,17 @@ public class AiAssistantService {
                 .append("查出来是空的，先把可选条件去掉重查一次，再回答没有。本站的排片日期可能落在过去，")
                 .append("空结果先怀疑自己加的条件，不要当成库里没数据。\n")
                 .append("8. 别把定参数的活推回给用户：能自己定默认值就直接查完给结论，")
-                .append("只有缺了没法默认的关键信息才反问。\n");
+                .append("只有缺了没法默认的关键信息才反问。\n")
+                // 站内的 want_number / score 停在 2024 年那次入库，库里最早的排片也是 2023-12-31。
+                // 模型拿它答「最近谁最热」，报出去的是一份两年前的榜单还当成今天的，
+                // 这比答「查不到」更坏：数字看着真，用户没法怀疑。所以热度榜单独走 hot_now，
+                // 它读的是站内缓存的外部快照，带抓取时间，没通就明说。
+                .append("9. 问「最近/现在什么在映、谁最热、有什么新片」用 hot_now，它读外部热度榜的站内快照，")
+                .append("回答时把抓取时间一起说出来。list_movies 的 wantNumber、score 是 2024 年入库时存的一版，")
+                .append("不是当下热度；hot_now 返回 available=false 就直接说外部榜这次没通，")
+                .append("不许改拿 wantNumber 排一份榜单冒充现在。\n")
+                .append("   热度榜上的片子也不等于本站有票：只有 libraryMovieId 非空且 showtimeCount 大于 0 的才能选座，")
+                .append("要说某部在本站有排片，得拿它的 libraryMovieId 调 find_showtimes 确认。\n");
         Map<String, Object> context = request.getContext();
         if (context != null && !context.isEmpty()) {
             prompt.append("用户当前页面的上下文：").append(context).append("。\n");
